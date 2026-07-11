@@ -1,0 +1,42 @@
+name: 發布
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - shell: pwsh
+        run: |
+          if ("${{ github.ref_name }}" -notmatch '^v\d+\.\d+\.\d+$') {
+            throw "標籤必須為 v主版.次版.修正版，例如 v1.2.1。"
+          }
+      - run: pip install pyinstaller
+      - run: python -m unittest
+      - run: pyinstaller --noconfirm --clean build\密碼工具GUI.spec
+      - shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release | Out-Null
+          $exe = Get-ChildItem dist -Filter *.exe | Select-Object -First 1
+          if (-not $exe -or $exe.Length -ge 40MB) {
+            throw "執行檔未產生或超過 40 MB。"
+          }
+          Copy-Item $exe.FullName release\PasswordToolsGUI.exe
+          $hash = Get-FileHash release\PasswordToolsGUI.exe -Algorithm SHA256
+          "$($hash.Hash)  PasswordToolsGUI.exe" | Set-Content release\SHA256SUMS.txt -Encoding ascii
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            release/PasswordToolsGUI.exe
+            release/SHA256SUMS.txt

@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+build/*
+!build/密碼工具GUI.spec
+dist/
+*.exe
+password_gui_config.json
+密碼工具GUI_tools/
+密碼工具GUI_輸出/
+hashcat/
+JohnRipper/
+*.hash
+*.log
