@@ -2167,7 +2167,10 @@ class PasswordToolGUI(tk.Tk):
             paths["hashcat_hash"].write_text(hashcat_text, encoding="utf-8", newline="\n")
 
             mode_label = self.detect_hashcat_mode(hashcat_text)
-            if mode_label and self.config_data.get("hashcat_path") and Path(self.config_data["hashcat_path"]).exists():
+            if mode_label.startswith("13000") and self.config_data.get("john_path") and Path(self.config_data["john_path"]).exists():
+                stages = self.build_auto_attack_stages(src, paths, "john", paths["john_hash"], "", wordlist)
+                self.after(0, lambda: self.start_auto_stages(stages, 0))
+            elif mode_label and self.config_data.get("hashcat_path") and Path(self.config_data["hashcat_path"]).exists():
                 stages = self.build_auto_attack_stages(src, paths, "hashcat", paths["hashcat_hash"], mode_label, wordlist)
                 self.after(0, lambda: self.start_auto_stages(stages, 0))
             elif self.config_data.get("john_path") and Path(self.config_data["john_path"]).exists():
@@ -2341,7 +2344,32 @@ class PasswordToolGUI(tk.Tk):
         ]
         return "\n".join(plan)
 
-    def start_auto_command(self, name: str, cmd: list[str], cwd: str | None, session_log: Path, engine: str, hash_file: Path, mode_label: str, cracked: Path) -> None:
+    def start_auto_stages(self, stages: list[dict[str, object]], index: int) -> None:
+        if index >= len(stages):
+            self.quick_status.set("自動流程已完成。")
+            return
+        stage = stages[index]
+
+        def continue_stages(_code: int) -> None:
+            cracked = Path(stage["cracked"])
+            if cracked.exists() and cracked.read_text(encoding="utf-8", errors="replace").strip():
+                self.quick_status.set("已找到密碼，停止後續破解階段。")
+                return
+            self.start_auto_stages(stages, index + 1)
+
+        self.start_auto_command(
+            str(stage["name"]),
+            list(stage["cmd"]),
+            stage["cwd"] or None,
+            Path(stage["session_log"]),
+            str(stage["engine"]),
+            Path(stage["hash_file"]),
+            str(stage["mode_label"]),
+            Path(stage["cracked"]),
+            on_finish=continue_stages,
+        )
+
+    def start_auto_command(self, name: str, cmd: list[str], cwd: str | None, session_log: Path, engine: str, hash_file: Path, mode_label: str, cracked: Path, on_finish=None) -> None:
         self.quick_status.set(f"{name} 執行中，結果會寫入 {cracked.name}")
         self.output_job_var.set(name)
         self.output_status_var.set("執行中")
@@ -2358,12 +2386,17 @@ class PasswordToolGUI(tk.Tk):
                 fh.write(plan + "\n")
         except Exception:
             pass
+        def finish(code: int) -> None:
+            self.finalize_auto_cracked(engine, hash_file, mode_label, cracked)
+            if on_finish:
+                on_finish(code)
+
         self.runner.start(
             name,
             cmd,
             cwd=cwd,
             log_path=session_log,
-            on_finish=lambda code: self.finalize_auto_cracked(engine, hash_file, mode_label, cracked),
+            on_finish=finish,
         )
 
     def finalize_auto_cracked(self, engine: str, hash_file: Path, mode_label: str, cracked: Path) -> None:
