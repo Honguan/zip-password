@@ -3,6 +3,7 @@ __pycache__/
 build/*
 !build/密碼工具GUI.spec
 dist/
+release/
 *.exe
 password_gui_config.json
 密碼工具GUI_tools/
