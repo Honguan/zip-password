@@ -44,7 +44,20 @@ class PasswordLogicTests(TestCase):
         text = "archive.zip:$rar5$16$hash:metadata\n"
 
         self.assertEqual(logic.prepare_hash_output(text, "hashcat"), "$rar5$16$hash:metadata\n")
-        self.assertEqual(logic.detect_hashcat_mode("$rar5$16$hash\n"), "13000 - RAR5")
+        modes = {
+            "$zip2$*0*3*hash": "13600 - WinZip",
+            "$pkzip2$*1*2*hash": "17200 - PKZIP",
+            "$rar5$16$hash": "13000 - RAR5",
+            "$rar3$*0*hash": "12500 - RAR3-hp",
+            "$7z$0$19$hash": "11600 - 7-Zip",
+            "$office$*2007*hash": "9400 - MS Office 2007",
+            "$office$*2010*hash": "9500 - MS Office 2010",
+            "$office$*2013*hash": "9600 - MS Office 2013",
+            "$pdf$2*3*hash": "10500 - PDF 1.4-1.6",
+        }
+        for hash_text, expected in modes.items():
+            with self.subTest(hash_text=hash_text):
+                self.assertEqual(logic.detect_hashcat_mode(hash_text), expected)
         self.assertEqual(logic.extract_passwords_from_show("archive.zip:secret\n0 passwords cracked\n"), ["secret"])
 
 

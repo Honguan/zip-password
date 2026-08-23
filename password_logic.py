@@ -12,7 +12,8 @@ AUTO_MASKS = [
 HASHCAT_DEFAULT_MASK = "?a?a?a?a?a?a"
 JOHN_DEFAULT_MASK = "?a?a?a?a?a?a"
 HASHCAT_PREFIX_MODES = [
-    ("$zip2$*", "17200 - PKZIP"),
+    ("$zip2$*", "13600 - WinZip"),
+    ("$pkzip2$*", "17200 - PKZIP"),
     ("$rar5$*", "13000 - RAR5"),
     ("$rar3$*", "12500 - RAR3-hp"),
     ("$7z$*", "11600 - 7-Zip"),
