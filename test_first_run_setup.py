@@ -33,6 +33,11 @@ class FirstRunSetupTests(TestCase):
 
     def test_missing_tools_are_downloaded_on_first_run(self):
         gui = self.make_gui()
+        gui.config_data = {
+            "hashcat_path": "missing-hashcat.exe",
+            "john_path": "missing-john.exe",
+            "john_run_dir": "missing-run",
+        }
         missing = {key: "" for key in ("hashcat_path", "john_path", "john_run_dir")}
 
         with patch.object(APP, "ensure_tool_dirs"), patch.object(APP, "find_tool_paths", return_value=missing):
@@ -43,6 +48,33 @@ class FirstRunSetupTests(TestCase):
         self.assertEqual(gui.config_data["hashcat_path"], "hashcat.exe")
         self.assertEqual(gui.config_data["john_path"], "john.exe")
         self.assertEqual(gui.config_data["john_run_dir"], "john-run")
+
+    def test_missing_tools_are_cleared_when_download_is_disabled(self):
+        gui = self.make_gui()
+        gui.config_data = {
+            "hashcat_path": "missing-hashcat.exe",
+            "john_path": "missing-john.exe",
+            "john_run_dir": "missing-run",
+        }
+        missing = {key: "" for key in ("hashcat_path", "john_path", "john_run_dir")}
+
+        with patch.object(APP, "ensure_tool_dirs"), patch.object(APP, "find_tool_paths", return_value=missing):
+            gui._ensure_tools_worker(auto_download=False)
+
+        self.assertEqual(gui.config_data, missing)
+        gui.enqueue_ui.assert_not_called()
+        gui.enqueue_status.assert_called_with("工具環境需要手動處理")
+
+    def test_invalid_john_path_does_not_preserve_its_run_directory(self):
+        with patch.object(APP, "existing_exe", return_value=""), patch.object(
+            APP, "find_in_env", return_value=""
+        ), patch.object(APP.shutil, "which", return_value=None), patch.object(
+            APP, "find_hashcat_under", return_value=""
+        ), patch.object(APP, "find_john_under", return_value=("", "")):
+            detected = APP.find_tool_paths({"john_path": "missing.exe", "john_run_dir": "missing-run"})
+
+        self.assertEqual(detected["john_path"], "")
+        self.assertEqual(detected["john_run_dir"], "")
 
     def test_existing_tools_are_reused_without_download(self):
         gui = self.make_gui()

@@ -247,7 +247,7 @@ def find_tool_paths(saved: dict[str, str] | None = None) -> dict[str, str]:
     saved = saved or {}
     hashcat_path = existing_exe(saved.get("hashcat_path", ""))
     john_path = existing_exe(saved.get("john_path", ""))
-    john_run_dir = saved.get("john_run_dir", "")
+    john_run_dir = saved.get("john_run_dir", "") if john_path else ""
 
     if not hashcat_path:
         hashcat_path = find_in_env("HASHCAT_PATH", "hashcat.exe")
@@ -1842,7 +1842,7 @@ class PasswordToolGUI(tk.Tk):
             self.enqueue_status("檢查工具環境中")
             ensure_tool_dirs()
             detected = find_tool_paths(self.config_data)
-            self.config_data.update({k: v for k, v in detected.items() if v})
+            self.config_data.update(detected)
             if not self.config_data.get("hashcat_path") and auto_download:
                 self.enqueue_log("\n找不到 hashcat，開始自動下載。\n")
                 self.config_data["hashcat_path"] = self.download_hashcat()
@@ -1851,6 +1851,8 @@ class PasswordToolGUI(tk.Tk):
                 john_path, john_run = self.download_john()
                 self.config_data["john_path"] = john_path
                 self.config_data["john_run_dir"] = john_run
+            if not self.config_data.get("hashcat_path") and not self.config_data.get("john_path"):
+                raise SetupError("找不到可用的 hashcat 或 John。", HASHCAT_DOWNLOAD_PAGE)
             self.enqueue_ui(self.apply_detected_tools_to_ui)
             self.enqueue_status("工具環境已就緒")
         except SetupError as exc:
