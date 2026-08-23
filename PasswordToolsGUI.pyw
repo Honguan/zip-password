@@ -14,7 +14,6 @@ import tempfile
 import threading
 import time
 import ctypes
-import fnmatch
 import hashlib
 import urllib.error
 import urllib.parse
@@ -24,6 +23,19 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext
 import tkinter as tk
 from tkinter import ttk
+
+from password_logic import (
+    AUTO_MASKS,
+    HASHCAT_DEFAULT_MASK,
+    JOHN_DEFAULT_MASK,
+    build_auto_hashcat_command,
+    build_auto_john_command,
+    config_bool,
+    detect_hashcat_mode,
+    extract_passwords_from_show,
+    merge_config,
+    prepare_hash_output,
+)
 
 
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
@@ -91,40 +103,12 @@ COMMON_WORDLISTS = [
     ),
 ]
 
-AUTO_MASKS = [
-    "?d?d?d?d",
-    "?d?d?d?d?d",
-    "?d?d?d?d?d?d",
-    "?d?d?d?d?d?d?d",
-    "?d?d?d?d?d?d?d?d",
-    "?l?l?l?l",
-    "?l?l?l?l?l",
-    "?l?l?l?l?l?l",
-    "?l?l?l?d?d",
-    "?l?l?l?l?d?d",
-    "?u?l?l?l?d?d",
-]
-
 WORDLIST_JOINERS = ["", " ", ".", "-", "_", "/", "@", "\t"]
 WORDLIST_EXPANSION_LIMIT = 500_000
 UI_QUEUE_LIMIT = 2_000
 UI_QUEUE_ITEMS_PER_TICK = 100
 UI_LOG_MAX_LINES = 5_000
 SESSION_LOG_BUFFER_SIZE = 64 * 1024
-HASHCAT_DEFAULT_MASK = "?a?a?a?a?a?a"
-JOHN_DEFAULT_MASK = "?a?a?a?a?a?a"
-
-HASHCAT_PREFIX_MODES = [
-    ("$zip2$*", "17200 - PKZIP"),
-    ("$rar5$*", "13000 - RAR5"),
-    ("$rar3$*", "12500 - RAR3-hp"),
-    ("$7z$*", "11600 - 7-Zip"),
-    ("$office$*2007*", "9400 - MS Office 2007"),
-    ("$office$*2010*", "9500 - MS Office 2010"),
-    ("$office$*2013*", "9600 - MS Office 2013"),
-    ("$pdf$*", "10500 - PDF 1.4-1.6"),
-]
-
 ARCHIVE_CONVERTER_MAP = {
     ".zip": "zip2john.exe",
     ".zipx": "zip2john.exe",
@@ -348,17 +332,6 @@ def read_config_file(path: Path) -> dict[str, str]:
     return {str(k): str(v) for k, v in data.items()}
 
 
-def config_bool(value: str | bool | None, default: bool = True) -> bool:
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    text = str(value).strip().lower()
-    if not text:
-        return default
-    return text not in {"0", "false", "no", "off", "關", "否", "停用"}
-
-
 def load_config() -> dict[str, str]:
     cfg = default_config()
     saved: dict[str, str] = {}
@@ -367,9 +340,7 @@ def load_config() -> dict[str, str]:
         try:
             data = read_config_file(loaded_path)
             saved = data
-            for key in cfg:
-                if key in data:
-                    cfg[key] = str(data[key])
+            cfg = merge_config(cfg, data)
         except Exception:
             pass
     detected = find_tool_paths(saved)
@@ -2243,13 +2214,19 @@ class PasswordToolGUI(tk.Tk):
                 candidate_count = count_text_lines(Path(wordlist), cancel=self.conversion_cancel)
                 self.enqueue_status(f"字典候選統計完成：{candidate_count}")
             if engine == "hashcat":
-                cmd = self.build_auto_hashcat_command(
-                    paths["hashcat_hash"], mode_label, wordlist, paths["cracked"], paths["mask"],
-                    src, str(settings["hashcat_mask"]), suffix,
+                configured_mask = str(settings["hashcat_mask"])
+                if not wordlist and (not configured_mask or configured_mask == HASHCAT_DEFAULT_MASK):
+                    paths["mask"].write_text("\n".join(AUTO_MASKS) + "\n", encoding="utf-8", newline="\n")
+                cmd = build_auto_hashcat_command(
+                    self.config_data["hashcat_path"], paths["hashcat_hash"], first_number(mode_label),
+                    wordlist, paths["cracked"], paths["mask"], src, configured_mask, suffix,
                 )
                 cwd = str(Path(self.config_data["hashcat_path"]).parent)
             else:
-                cmd = self.build_auto_john_command(paths["john_hash"], wordlist, src, str(settings["john_mask"]), suffix)
+                cmd = build_auto_john_command(
+                    self.config_data["john_path"], paths["john_hash"], wordlist, src,
+                    str(settings["john_mask"]), suffix,
+                )
                 cwd = self.config_data.get("john_run_dir") or None
             stages.append(
                 {
@@ -2307,11 +2284,11 @@ class PasswordToolGUI(tk.Tk):
             if not john_text.strip():
                 raise RuntimeError("沒有取得可破解的雜湊。")
 
-            paths["john_hash"].write_text(self.prepare_hash_output(john_text, "john"), encoding="utf-8", newline="\n")
-            hashcat_text = self.prepare_hash_output(john_text, "hashcat")
+            paths["john_hash"].write_text(prepare_hash_output(john_text, "john"), encoding="utf-8", newline="\n")
+            hashcat_text = prepare_hash_output(john_text, "hashcat")
             paths["hashcat_hash"].write_text(hashcat_text, encoding="utf-8", newline="\n")
 
-            mode_label = self.detect_hashcat_mode(hashcat_text)
+            mode_label = detect_hashcat_mode(hashcat_text)
             if mode_label.startswith("13000") and self.config_data.get("john_path") and Path(self.config_data["john_path"]).exists():
                 stages = self.build_auto_attack_stages(src, paths, "john", paths["john_hash"], "", wordlist, settings)
                 self.enqueue_ui(lambda: self.start_auto_stages(stages, 0))
@@ -2366,61 +2343,6 @@ class PasswordToolGUI(tk.Tk):
         if "$" not in text and ":" not in text and not re.search(r"\b[0-9a-fA-F]{32,}\b", text):
             raise RuntimeError("無法判斷檔案格式；請選擇支援的壓縮包/加密檔或雜湊文字檔。")
         return text
-
-    def detect_hashcat_mode(self, hash_text: str) -> str:
-        lines = [line.strip() for line in hash_text.splitlines() if line.strip()]
-        for line in lines:
-            lower = line.lower()
-            for pattern, mode_label in HASHCAT_PREFIX_MODES:
-                if fnmatch.fnmatch(lower, pattern.lower()):
-                    return mode_label
-        if lines and re.fullmatch(r"[0-9a-fA-F]{32}", lines[0]):
-            return "0 - MD5"
-        if lines and re.fullmatch(r"[0-9a-fA-F]{40}", lines[0]):
-            return "100 - SHA1"
-        return ""
-
-    def build_auto_hashcat_command(
-        self, hash_file: Path, mode_label: str, wordlist: str, cracked: Path, mask_file: Path,
-        src: Path, configured_mask: str, session_suffix: str = "",
-    ) -> list[str]:
-        mode = first_number(mode_label)
-        session_base = f"auto_{src.stem}_{session_suffix}" if session_suffix else f"auto_{src.stem}"
-        session = re.sub(r"[^A-Za-z0-9_.-]+", "_", session_base)[:60] or "auto_hashcat"
-        cmd = [
-            self.config_data["hashcat_path"],
-            "-m", mode,
-            "--session", session,
-            "--status",
-            "--status-timer", "10",
-            "--outfile", str(cracked),
-            "--outfile-format", "2",
-        ]
-        if wordlist:
-            cmd += ["-a", "0", str(hash_file), wordlist]
-        else:
-            if configured_mask and configured_mask != HASHCAT_DEFAULT_MASK:
-                cmd += ["-a", "3", str(hash_file), configured_mask]
-            else:
-                mask_file.write_text("\n".join(AUTO_MASKS) + "\n", encoding="utf-8", newline="\n")
-                cmd += ["-a", "3", str(hash_file), str(mask_file)]
-        return cmd
-
-    def build_auto_john_command(
-        self, hash_file: Path, wordlist: str, src: Path, configured_mask: str, session_suffix: str = ""
-    ) -> list[str]:
-        session_base = f"auto_{src.stem}_{session_suffix}" if session_suffix else f"auto_{src.stem}"
-        session = re.sub(r"[^A-Za-z0-9_.-]+", "_", session_base)[:60] or "auto_john"
-        cmd = [self.config_data["john_path"], f"--session={session}"]
-        if wordlist:
-            cmd.append(f"--wordlist={wordlist}")
-        else:
-            if configured_mask and configured_mask != JOHN_DEFAULT_MASK:
-                cmd.append(f"--mask={configured_mask}")
-            else:
-                cmd += ["--mask=?d?d?d?d?d?d?d?d", "--min-length=4"]
-        cmd.append(str(hash_file))
-        return cmd
 
     def describe_auto_attack_plan(
         self, name: str, cmd: list[str], cwd: str | None, session_log: Path, engine: str,
@@ -2563,7 +2485,7 @@ class PasswordToolGUI(tk.Tk):
             creationflags, startupinfo = hidden_startup()
             proc = subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=creationflags, startupinfo=startupinfo, timeout=60)
             shown = clean_output(decode_bytes(proc.stdout + proc.stderr))
-            passwords = self.extract_passwords_from_show(shown)
+            passwords = extract_passwords_from_show(shown)
             if passwords:
                 existing = cracked.read_text(encoding="utf-8", errors="replace").splitlines() if cracked.exists() else []
                 merged = list(dict.fromkeys([line for line in existing + passwords if line.strip()]))
@@ -2581,16 +2503,6 @@ class PasswordToolGUI(tk.Tk):
                 self.quick_status.set("尚未破解出密碼。")
         except Exception as exc:
             self.log(f"\n[輸出密碼錯誤] {exc}\n")
-
-    def extract_passwords_from_show(self, text: str) -> list[str]:
-        passwords: list[str] = []
-        for line in text.splitlines():
-            line = line.strip()
-            if not line or line.lower().startswith(("0 password", "no password", "remaining", "guesses:")):
-                continue
-            if ":" in line:
-                passwords.append(line.rsplit(":", 1)[-1])
-        return passwords
 
     def converter_for_input(self, input_path: Path) -> str:
         chosen = self.extract_converter.get()
@@ -2681,7 +2593,7 @@ class PasswordToolGUI(tk.Tk):
                 self.enqueue_log(stderr + ("\n" if not stderr.endswith("\n") else ""))
             if proc.returncode != 0 and not stdout.strip():
                 raise RuntimeError(f"轉換器結束代碼 {proc.returncode}")
-            result = self.prepare_hash_output(stdout, str(settings["target"]))
+            result = prepare_hash_output(stdout, str(settings["target"]))
             if not result.strip():
                 raise RuntimeError("沒有取得雜湊輸出，請確認檔案是否加密或轉換器是否支援。")
             out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2711,18 +2623,6 @@ class PasswordToolGUI(tk.Tk):
             self.hashcat_hash_file.set(str(out_path))
         if settings["fill_john"]:
             self.john_hash_file.set(str(out_path))
-
-    def prepare_hash_output(self, text: str, target: str) -> str:
-        lines = [line.strip() for line in text.splitlines() if line.strip()]
-        if target != "hashcat":
-            return "\n".join(lines) + ("\n" if lines else "")
-        cleaned: list[str] = []
-        for line in lines:
-            dollar = line.find("$")
-            if dollar > 0 and ":" in line[:dollar]:
-                line = line[dollar:]
-            cleaned.append(line)
-        return "\n".join(cleaned) + ("\n" if cleaned else "")
 
     def hashcat_common_args(self) -> list[str]:
         self.config_data.update({k: v for k, v in find_tool_paths(self.config_data).items() if v})

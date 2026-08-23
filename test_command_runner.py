@@ -174,7 +174,6 @@ class CommandRunnerTests(TestCase):
             gui.converter_command = Mock(return_value=["zip2john.exe", str(src)])
             gui.runner = Mock()
             gui.runner.capture.return_value = APP.subprocess.CompletedProcess([], 0, b"hash", b"")
-            gui.prepare_hash_output = Mock(return_value="hash\n")
             gui.enqueue_log = Mock()
             gui.enqueue_status = Mock()
             gui.enqueue_ui = Mock()
@@ -183,7 +182,8 @@ class CommandRunnerTests(TestCase):
             gui.extract_safe_copy.get.side_effect = AssertionError("worker touched Tk")
             settings = {"safe_copy": False, "target": "john", "fill_hashcat": True, "fill_john": False}
 
-            gui._extract_worker(src, out, "zip2john.exe", settings)
+            with patch.object(APP, "prepare_hash_output", return_value="hash\n"):
+                gui._extract_worker(src, out, "zip2john.exe", settings)
 
             self.assertEqual(out.read_text(encoding="utf-8"), "hash\n")
             gui.extract_safe_copy.get.assert_not_called()

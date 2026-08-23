@@ -2,7 +2,7 @@ import importlib.machinery
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, main
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 
 APP = importlib.machinery.SourceFileLoader(
@@ -24,8 +24,6 @@ class AutoEngineTests(TestCase):
             gui._ensure_tools_worker = Mock()
             gui._auto_output_paths = Mock(return_value=paths)
             gui.convert_file_to_hash_text = Mock(return_value="hash")
-            gui.prepare_hash_output = Mock(return_value="hash")
-            gui.detect_hashcat_mode = Mock(return_value="13000 - RAR5")
             gui.build_auto_attack_stages = Mock(return_value=[])
             gui.start_auto_stages = Mock()
             gui.after = Mock(side_effect=AssertionError("worker called Tk after"))
@@ -41,7 +39,10 @@ class AutoEngineTests(TestCase):
                 "john_mask": "",
             }
 
-            gui._auto_workflow(root / "sample.rar", "wordlist.txt", settings)
+            with patch.object(APP, "prepare_hash_output", return_value="hash"), patch.object(
+                APP, "detect_hashcat_mode", return_value="13000 - RAR5"
+            ):
+                gui._auto_workflow(root / "sample.rar", "wordlist.txt", settings)
 
         self.assertEqual(gui.build_auto_attack_stages.call_args.args[2], "john")
         gui.convert_file_to_hash_text.assert_called_once_with(root / "sample.rar", "rar2john.exe", True)
