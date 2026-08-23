@@ -880,7 +880,7 @@ class CommandRunner:
         self.job_lock.release()
         self.app.enqueue_status(f"{name} {'已停止' if cancelled else '已結束'}")
         if finish_callback:
-            self.app.after(0, lambda: finish_callback(code))
+            self.app.enqueue_ui(lambda: finish_callback(code))
 
     def send_key(self, key: str) -> None:
         with self.lock:
@@ -935,6 +935,7 @@ class PasswordToolGUI(tk.Tk):
             pass
         self.log_queue: queue.Queue[str] = queue.Queue()
         self.status_queue: queue.Queue[str] = queue.Queue()
+        self.ui_queue: queue.Queue[object] = queue.Queue()
         self._tools_setup_lock = threading.Lock()
         self.runner = CommandRunner(self)
         self.extract_thread: threading.Thread | None = None
@@ -1629,6 +1630,9 @@ class PasswordToolGUI(tk.Tk):
     def enqueue_status(self, text: str) -> None:
         self.status_queue.put(text)
 
+    def enqueue_ui(self, callback) -> None:
+        self.ui_queue.put(callback)
+
     def _drain_queues(self) -> None:
         try:
             while True:
@@ -1638,6 +1642,11 @@ class PasswordToolGUI(tk.Tk):
         try:
             while True:
                 self.set_status(self.status_queue.get_nowait())
+        except queue.Empty:
+            pass
+        try:
+            while True:
+                self.ui_queue.get_nowait()()
         except queue.Empty:
             pass
         self.update_elapsed()
@@ -1868,18 +1877,18 @@ class PasswordToolGUI(tk.Tk):
             self.enqueue_status("工具環境檢查已在執行")
             return
         try:
-            thread = threading.Thread(target=self._ensure_tools_worker, args=(force_download, True), daemon=True)
+            auto_var = getattr(self, "quick_auto_download", None)
+            auto_download = force_download or (bool(auto_var.get()) if auto_var is not None else True)
+            thread = threading.Thread(target=self._ensure_tools_worker, args=(auto_download, True), daemon=True)
             thread.start()
         except Exception:
             self._tools_setup_lock.release()
             raise
 
-    def _ensure_tools_worker(self, force_download: bool = False, lock_acquired: bool = False) -> None:
+    def _ensure_tools_worker(self, auto_download: bool = True, lock_acquired: bool = False) -> None:
         if not lock_acquired:
             self._tools_setup_lock.acquire()
         try:
-            auto_var = getattr(self, "quick_auto_download", None)
-            auto_download = force_download or (bool(auto_var.get()) if auto_var is not None else True)
             self.enqueue_status("檢查工具環境中")
             ensure_tool_dirs()
             detected = find_tool_paths(self.config_data)
@@ -1892,7 +1901,7 @@ class PasswordToolGUI(tk.Tk):
                 john_path, john_run = self.download_john()
                 self.config_data["john_path"] = john_path
                 self.config_data["john_run_dir"] = john_run
-            self.after(0, self.apply_detected_tools_to_ui)
+            self.enqueue_ui(self.apply_detected_tools_to_ui)
             self.enqueue_status("工具環境已就緒")
         except SetupError as exc:
             message = str(exc)
@@ -1957,7 +1966,7 @@ class PasswordToolGUI(tk.Tk):
             self.enqueue_log(f"\n下載字典：{name}\n{url}\n")
             if not dest.exists():
                 download_file(url, dest, self.enqueue_log)
-            self.after(0, lambda: self.apply_downloaded_wordlist(dest, name))
+            self.enqueue_ui(lambda: self.apply_downloaded_wordlist(dest, name))
             self.enqueue_status("字典已導入")
         except Exception as exc:
             self.enqueue_log(f"\n[字典下載錯誤] {exc}\n")
@@ -2075,8 +2084,16 @@ class PasswordToolGUI(tk.Tk):
         self.set_cracked_passwords([])
         self.update_jobs_tree(name=src.name, status="準備中")
         wordlist = self.quick_wordlist.get().strip()
+        settings = {
+            "auto_download": bool(self.quick_auto_download.get()),
+            "converter": self.converter_for_input(src),
+            "safe_copy": bool(self.extract_safe_copy.get()),
+            "expand_wordlist": bool(self.quick_expand_wordlist.get()),
+            "hashcat_mask": self.hashcat_mask.get().strip(),
+            "john_mask": self.john_mask.get().strip(),
+        }
         self.conversion_cancel.clear()
-        self.auto_thread = threading.Thread(target=self._auto_workflow, args=(src, wordlist), daemon=True)
+        self.auto_thread = threading.Thread(target=self._auto_workflow, args=(src, wordlist, settings), daemon=True)
         self.auto_thread.start()
 
     def _auto_output_paths(self, src: Path) -> dict[str, Path]:
@@ -2153,14 +2170,12 @@ class PasswordToolGUI(tk.Tk):
         self.enqueue_log(f"\n[階段 2] 組合候選已合併：{paths['combo_wordlist']}\n候選數：{count:,} 筆\n")
         return str(paths["combo_wordlist"])
 
-    def prepare_auto_wordlist(self, wordlist: str, expanded_path: Path) -> str:
+    def prepare_auto_wordlist(self, wordlist: str, expanded_path: Path, should_expand: bool) -> str:
         if not wordlist:
             return ""
         source = Path(wordlist)
         if not source.exists():
             raise FileNotFoundError(f"字典檔不存在：{wordlist}")
-        expand_var = getattr(self, "quick_expand_wordlist", None)
-        should_expand = bool(expand_var.get()) if expand_var is not None else True
         if not should_expand:
             return str(source)
         count = build_expanded_wordlist(source, expanded_path)
@@ -2178,6 +2193,7 @@ class PasswordToolGUI(tk.Tk):
         hash_file: Path,
         mode_label: str,
         manual_wordlist: str,
+        settings: dict[str, object],
     ) -> list[dict[str, object]]:
         follow_order = config_bool(self.config_data.get("auto_follow_order", "1"), True)
         combo_file = self.config_data.get("combo_wordlist", "").strip()
@@ -2187,10 +2203,13 @@ class PasswordToolGUI(tk.Tk):
 
         def add_stage(stage_name: str, wordlist: str, suffix: str) -> None:
             if engine == "hashcat":
-                cmd = self.build_auto_hashcat_command(paths["hashcat_hash"], mode_label, wordlist, paths["cracked"], paths["mask"], src, suffix)
+                cmd = self.build_auto_hashcat_command(
+                    paths["hashcat_hash"], mode_label, wordlist, paths["cracked"], paths["mask"],
+                    src, str(settings["hashcat_mask"]), suffix,
+                )
                 cwd = str(Path(self.config_data["hashcat_path"]).parent)
             else:
-                cmd = self.build_auto_john_command(paths["john_hash"], wordlist, src, suffix)
+                cmd = self.build_auto_john_command(paths["john_hash"], wordlist, src, str(settings["john_mask"]), suffix)
                 cwd = self.config_data.get("john_run_dir") or None
             stages.append(
                 {
@@ -2218,7 +2237,9 @@ class PasswordToolGUI(tk.Tk):
 
         selected_wordlist = manual_wordlist or self.config_data.get("default_wordlist", "")
         if selected_wordlist:
-            attack_wordlist = self.prepare_auto_wordlist(selected_wordlist, paths["expanded_wordlist"])
+            attack_wordlist = self.prepare_auto_wordlist(
+                selected_wordlist, paths["expanded_wordlist"], bool(settings["expand_wordlist"])
+            )
             add_stage("單次字典破解", attack_wordlist, "single")
         elif combo_file or combo_key:
             combo_wordlist = self.prepare_combo_wordlist(combo_file, combo_key, paths)
@@ -2228,14 +2249,14 @@ class PasswordToolGUI(tk.Tk):
             add_stage("單次硬破解", "", "brute")
         return stages
 
-    def _auto_workflow(self, src: Path, wordlist: str) -> None:
+    def _auto_workflow(self, src: Path, wordlist: str, settings: dict[str, object]) -> None:
         try:
-            self._ensure_tools_worker(force_download=False)
+            self._ensure_tools_worker(bool(settings["auto_download"]))
             paths = self._auto_output_paths(src)
 
-            converter = self.converter_for_input(src)
+            converter = str(settings["converter"])
             if converter:
-                john_text = self.convert_file_to_hash_text(src, converter)
+                john_text = self.convert_file_to_hash_text(src, converter, bool(settings["safe_copy"]))
             else:
                 john_text = self.read_hash_text(src)
 
@@ -2248,14 +2269,14 @@ class PasswordToolGUI(tk.Tk):
 
             mode_label = self.detect_hashcat_mode(hashcat_text)
             if mode_label.startswith("13000") and self.config_data.get("john_path") and Path(self.config_data["john_path"]).exists():
-                stages = self.build_auto_attack_stages(src, paths, "john", paths["john_hash"], "", wordlist)
-                self.after(0, lambda: self.start_auto_stages(stages, 0))
+                stages = self.build_auto_attack_stages(src, paths, "john", paths["john_hash"], "", wordlist, settings)
+                self.enqueue_ui(lambda: self.start_auto_stages(stages, 0))
             elif mode_label and self.config_data.get("hashcat_path") and Path(self.config_data["hashcat_path"]).exists():
-                stages = self.build_auto_attack_stages(src, paths, "hashcat", paths["hashcat_hash"], mode_label, wordlist)
-                self.after(0, lambda: self.start_auto_stages(stages, 0))
+                stages = self.build_auto_attack_stages(src, paths, "hashcat", paths["hashcat_hash"], mode_label, wordlist, settings)
+                self.enqueue_ui(lambda: self.start_auto_stages(stages, 0))
             elif self.config_data.get("john_path") and Path(self.config_data["john_path"]).exists():
-                stages = self.build_auto_attack_stages(src, paths, "john", paths["john_hash"], "", wordlist)
-                self.after(0, lambda: self.start_auto_stages(stages, 0))
+                stages = self.build_auto_attack_stages(src, paths, "john", paths["john_hash"], "", wordlist, settings)
+                self.enqueue_ui(lambda: self.start_auto_stages(stages, 0))
             else:
                 raise SetupError("找不到可用的 hashcat 或 John。", HASHCAT_DOWNLOAD_PAGE)
         except InterruptedError as exc:
@@ -2271,11 +2292,11 @@ class PasswordToolGUI(tk.Tk):
             self.enqueue_log(f"\n[自動流程錯誤] {exc}\n")
             self.enqueue_status("自動流程失敗")
 
-    def convert_file_to_hash_text(self, src: Path, converter: str) -> str:
+    def convert_file_to_hash_text(self, src: Path, converter: str, safe_copy: bool) -> str:
         temp: tempfile.TemporaryDirectory[str] | None = None
         try:
             input_for_tool = src
-            if self.extract_safe_copy.get():
+            if safe_copy:
                 temp = tempfile.TemporaryDirectory(prefix="ptgui_")
                 input_for_tool = self.safe_converter_input(src, Path(temp.name))
             if self.conversion_cancel.is_set():
@@ -2315,7 +2336,10 @@ class PasswordToolGUI(tk.Tk):
             return "100 - SHA1"
         return ""
 
-    def build_auto_hashcat_command(self, hash_file: Path, mode_label: str, wordlist: str, cracked: Path, mask_file: Path, src: Path, session_suffix: str = "") -> list[str]:
+    def build_auto_hashcat_command(
+        self, hash_file: Path, mode_label: str, wordlist: str, cracked: Path, mask_file: Path,
+        src: Path, configured_mask: str, session_suffix: str = "",
+    ) -> list[str]:
         mode = first_number(mode_label)
         session_base = f"auto_{src.stem}_{session_suffix}" if session_suffix else f"auto_{src.stem}"
         session = re.sub(r"[^A-Za-z0-9_.-]+", "_", session_base)[:60] or "auto_hashcat"
@@ -2331,7 +2355,6 @@ class PasswordToolGUI(tk.Tk):
         if wordlist:
             cmd += ["-a", "0", str(hash_file), wordlist]
         else:
-            configured_mask = self.hashcat_mask.get().strip() if hasattr(self, "hashcat_mask") else ""
             if configured_mask and configured_mask != HASHCAT_DEFAULT_MASK:
                 cmd += ["-a", "3", str(hash_file), configured_mask]
             else:
@@ -2339,14 +2362,15 @@ class PasswordToolGUI(tk.Tk):
                 cmd += ["-a", "3", str(hash_file), str(mask_file)]
         return cmd
 
-    def build_auto_john_command(self, hash_file: Path, wordlist: str, src: Path, session_suffix: str = "") -> list[str]:
+    def build_auto_john_command(
+        self, hash_file: Path, wordlist: str, src: Path, configured_mask: str, session_suffix: str = ""
+    ) -> list[str]:
         session_base = f"auto_{src.stem}_{session_suffix}" if session_suffix else f"auto_{src.stem}"
         session = re.sub(r"[^A-Za-z0-9_.-]+", "_", session_base)[:60] or "auto_john"
         cmd = [self.config_data["john_path"], f"--session={session}"]
         if wordlist:
             cmd.append(f"--wordlist={wordlist}")
         else:
-            configured_mask = self.john_mask.get().strip() if hasattr(self, "john_mask") else ""
             if configured_mask and configured_mask != JOHN_DEFAULT_MASK:
                 cmd.append(f"--mask={configured_mask}")
             else:
@@ -2572,16 +2596,26 @@ class PasswordToolGUI(tk.Tk):
         ):
             messagebox.showwarning("已有工作執行中", "請先停止或等待目前工作完成。")
             return
+        settings = {
+            "safe_copy": bool(self.extract_safe_copy.get()),
+            "target": self.extract_target.get(),
+            "fill_hashcat": bool(self.extract_fill_hashcat.get()),
+            "fill_john": bool(self.extract_fill_john.get()),
+        }
         self.conversion_cancel.clear()
-        self.extract_thread = threading.Thread(target=self._extract_worker, args=(src, out_path, converter), daemon=True)
+        self.extract_thread = threading.Thread(
+            target=self._extract_worker, args=(src, out_path, converter, settings), daemon=True
+        )
         self.extract_thread.start()
 
-    def _extract_worker(self, src: Path, out_path: Path, converter: str) -> None:
+    def _extract_worker(
+        self, src: Path, out_path: Path, converter: str, settings: dict[str, object]
+    ) -> None:
         self.enqueue_status("雜湊轉換中")
         temp: tempfile.TemporaryDirectory[str] | None = None
         try:
             input_for_tool = src
-            if self.extract_safe_copy.get():
+            if bool(settings["safe_copy"]):
                 temp = tempfile.TemporaryDirectory(prefix="ptgui_")
                 input_for_tool = self.safe_converter_input(src, Path(temp.name))
             if self.conversion_cancel.is_set():
@@ -2597,17 +2631,14 @@ class PasswordToolGUI(tk.Tk):
                 self.enqueue_log(stderr + ("\n" if not stderr.endswith("\n") else ""))
             if proc.returncode != 0 and not stdout.strip():
                 raise RuntimeError(f"轉換器結束代碼 {proc.returncode}")
-            result = self.prepare_hash_output(stdout, self.extract_target.get())
+            result = self.prepare_hash_output(stdout, str(settings["target"]))
             if not result.strip():
                 raise RuntimeError("沒有取得雜湊輸出，請確認檔案是否加密或轉換器是否支援。")
             out_path.parent.mkdir(parents=True, exist_ok=True)
             out_path.write_text(result, encoding="utf-8", newline="\n")
             self.enqueue_log(result + ("\n" if not result.endswith("\n") else ""))
             self.enqueue_log(f"\n已寫入：{out_path}\n")
-            if self.extract_fill_hashcat.get():
-                self.hashcat_hash_file.set(str(out_path))
-            if self.extract_fill_john.get():
-                self.john_hash_file.set(str(out_path))
+            self.enqueue_ui(lambda: self.apply_extracted_hash(out_path, settings))
             self.enqueue_status("雜湊轉換完成")
         except InterruptedError as exc:
             self.enqueue_log(f"\n[停止] {exc}\n")
@@ -2624,6 +2655,12 @@ class PasswordToolGUI(tk.Tk):
         finally:
             if temp:
                 temp.cleanup()
+
+    def apply_extracted_hash(self, out_path: Path, settings: dict[str, object]) -> None:
+        if settings["fill_hashcat"]:
+            self.hashcat_hash_file.set(str(out_path))
+        if settings["fill_john"]:
+            self.john_hash_file.set(str(out_path))
 
     def prepare_hash_output(self, text: str, target: str) -> str:
         lines = [line.strip() for line in text.splitlines() if line.strip()]

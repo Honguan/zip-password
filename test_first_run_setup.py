@@ -25,8 +25,8 @@ class FirstRunSetupTests(TestCase):
         gui.quick_auto_download = Value(True)
         gui.enqueue_log = Mock()
         gui.enqueue_status = Mock()
+        gui.enqueue_ui = Mock()
         gui.apply_detected_tools_to_ui = Mock()
-        gui.after = lambda _delay, callback: callback()
         gui.download_hashcat = Mock(return_value="hashcat.exe")
         gui.download_john = Mock(return_value=("john.exe", "john-run"))
         return gui
@@ -63,7 +63,7 @@ class FirstRunSetupTests(TestCase):
             gui.ensure_tools_async()
             gui.ensure_tools_async()
 
-        thread_class.assert_called_once_with(target=gui._ensure_tools_worker, args=(False, True), daemon=True)
+        thread_class.assert_called_once_with(target=gui._ensure_tools_worker, args=(True, True), daemon=True)
         thread.start.assert_called_once_with()
         gui.enqueue_status.assert_called_with("工具環境檢查已在執行")
         gui._tools_setup_lock.release()
@@ -87,6 +87,19 @@ class FirstRunSetupTests(TestCase):
             gui._ensure_tools_worker()
 
         self.assertEqual(gui.config_data, installed)
+
+    def test_setup_worker_uses_snapshotted_download_setting(self):
+        gui = self.make_gui()
+        gui.quick_auto_download = Mock()
+        gui.quick_auto_download.get.side_effect = AssertionError("worker touched Tk")
+        installed = {"hashcat_path": "hashcat.exe", "john_path": "john.exe", "john_run_dir": "john-run"}
+
+        with patch.object(APP, "ensure_tool_dirs"), patch.object(APP, "find_tool_paths", return_value=installed):
+            gui._ensure_tools_worker(auto_download=False)
+
+        gui.quick_auto_download.get.assert_not_called()
+        gui.enqueue_ui.assert_called_once_with(gui.apply_detected_tools_to_ui)
+        gui.enqueue_status.assert_called_with("工具環境已就緒")
 
 
 if __name__ == "__main__":

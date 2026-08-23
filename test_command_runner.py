@@ -1,5 +1,6 @@
 import importlib.machinery
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest import TestCase, main
 from unittest.mock import Mock, patch
 
@@ -142,6 +143,34 @@ class CommandRunnerTests(TestCase):
 
         gui.extract_thread.join.assert_called_once_with()
         gui.destroy.assert_called_once_with()
+
+    def test_extract_worker_uses_snapshot_and_queues_ui_update(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            src = root / "input.zip"
+            src.touch()
+            out = root / "output.hash"
+            gui = object.__new__(APP.PasswordToolGUI)
+            gui.config_data = {}
+            gui.conversion_cancel = APP.threading.Event()
+            gui.converter_command = Mock(return_value=["zip2john.exe", str(src)])
+            gui.runner = Mock()
+            gui.runner.capture.return_value = APP.subprocess.CompletedProcess([], 0, b"hash", b"")
+            gui.prepare_hash_output = Mock(return_value="hash\n")
+            gui.enqueue_log = Mock()
+            gui.enqueue_status = Mock()
+            gui.enqueue_ui = Mock()
+            gui.apply_extracted_hash = Mock()
+            gui.extract_safe_copy = Mock()
+            gui.extract_safe_copy.get.side_effect = AssertionError("worker touched Tk")
+            settings = {"safe_copy": False, "target": "john", "fill_hashcat": True, "fill_john": False}
+
+            gui._extract_worker(src, out, "zip2john.exe", settings)
+
+            self.assertEqual(out.read_text(encoding="utf-8"), "hash\n")
+            gui.extract_safe_copy.get.assert_not_called()
+            gui.enqueue_ui.call_args.args[0]()
+            gui.apply_extracted_hash.assert_called_once_with(out, settings)
 
     def test_dashboard_shows_runner_elapsed_time(self):
         gui = object.__new__(APP.PasswordToolGUI)
