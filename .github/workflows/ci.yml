@@ -1,0 +1,56 @@
+name: 驗證
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  issue-metadata:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 驗證 Issue 分支與 PR
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if [[ "$HEAD_REF" =~ ^issue/([0-9]+)-[a-z0-9][a-z0-9-]*$ ]]; then
+            issue="${BASH_REMATCH[1]}"
+          else
+            echo "分支必須命名為 issue/<number>-<short-description>。"
+            exit 1
+          fi
+
+          if [[ "$PR_TITLE" != *"#$issue"* ]]; then
+            echo "PR 標題必須包含 #$issue。"
+            exit 1
+          fi
+
+          if ! grep -Eiq "(^|[[:space:]])Refs[[:space:]]+#${issue}([^0-9]|$)" <<< "$PR_BODY"; then
+            echo "PR 內容必須包含 Refs #$issue。"
+            exit 1
+          fi
+
+          if grep -Eiq "(^|[[:space:]])(Fixes|Closes|Resolves)[[:space:]]+#${issue}([^0-9]|$)" <<< "$PR_BODY"; then
+            echo "PR 內容在 main 驗證前不得自動關閉 Issue。"
+            exit 1
+          fi
+
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - run: python -m unittest
+      - run: python -m py_compile PasswordToolsGUI.pyw
