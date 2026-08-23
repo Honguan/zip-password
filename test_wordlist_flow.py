@@ -20,6 +20,8 @@ class WordlistFlowTests(TestCase):
         )
         gui.prepare_combo_wordlist = Mock(return_value="")
         gui.build_auto_hashcat_command = Mock(return_value=["hashcat.exe"])
+        gui.enqueue_status = Mock()
+        gui.conversion_cancel = APP.threading.Event()
         return gui
 
     def paths(self):

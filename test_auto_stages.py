@@ -1,8 +1,9 @@
 import importlib.machinery
+from contextlib import nullcontext
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, main
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 
 APP = importlib.machinery.SourceFileLoader(
@@ -72,6 +73,44 @@ class AutoStagesTests(TestCase):
 
         self.assertEqual(gui.start_auto_command.call_count, 1)
         self.assertIn("找到密碼", gui.quick_status.value)
+
+    def test_attack_plan_uses_precomputed_dictionary_count(self):
+        gui = object.__new__(APP.PasswordToolGUI)
+        gui.output_candidate_var = Value()
+        gui.output_length_var = Value()
+
+        with patch.object(APP, "count_text_lines", side_effect=AssertionError("counted on UI thread")):
+            plan = gui.describe_auto_attack_plan(
+                "hashcat 字典", ["hashcat", "-a", "0", "hash.txt", "large.txt"], None,
+                Path("session.log"), "hashcat", Path("hash.txt"), "0 - MD5", Path("cracked.txt"),
+                "100,000 筆",
+            )
+
+        self.assertEqual(gui.output_candidate_var.value, "100,000 筆")
+        self.assertIn("候選規模：100,000 筆", plan)
+
+    def test_large_dictionary_count_can_be_cancelled(self):
+        cancel = APP.threading.Event()
+        source = Mock()
+
+        def lines():
+            yield b"first\n"
+            cancel.set()
+            yield b"second\n"
+
+        source.open.return_value = nullcontext(lines())
+
+        with self.assertRaisesRegex(InterruptedError, "統計已停止"):
+            APP.count_text_lines(source, cancel=cancel)
+
+    def test_large_temporary_dictionary_is_counted(self):
+        with TemporaryDirectory() as temp:
+            wordlist = Path(temp) / "large.txt"
+            wordlist.write_text("candidate\n" * 100_000, encoding="utf-8")
+
+            result = APP.count_text_lines(wordlist)
+
+        self.assertEqual(result, "100,000 筆")
 
 
 if __name__ == "__main__":
