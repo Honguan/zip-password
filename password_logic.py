@@ -72,14 +72,20 @@ def detect_hashcat_mode(hash_text: str) -> str:
     return ""
 
 
-def extract_passwords_from_show(text: str) -> list[str]:
+def extract_passwords_from_show(text: str, engine: str) -> list[str]:
     passwords: list[str] = []
     for line in text.splitlines():
         line = line.strip()
         if not line or line.lower().startswith(("0 password", "no password", "remaining", "guesses:")):
             continue
         if ":" in line:
-            passwords.append(line.rsplit(":", 1)[-1])
+            fields = line.split(":")
+            if engine == "john" and len(fields) >= 7 and fields[-5].isdigit() and fields[-4].isdigit():
+                passwords.append(":".join(fields[1:-5]))
+            elif engine == "john":
+                passwords.append(line.split(":", 1)[1])
+            else:
+                passwords.append(fields[-1])
     return passwords
 
 

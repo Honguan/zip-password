@@ -2435,7 +2435,7 @@ class PasswordToolGUI(tk.Tk):
             creationflags, startupinfo = hidden_startup()
             proc = subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=creationflags, startupinfo=startupinfo, timeout=60)
             shown = clean_output(decode_bytes(proc.stdout + proc.stderr))
-            passwords = extract_passwords_from_show(shown)
+            passwords = extract_passwords_from_show(shown, engine)
             if passwords:
                 existing = cracked.read_text(encoding="utf-8", errors="replace").splitlines() if cracked.exists() else []
                 merged = list(dict.fromkeys([line for line in existing + passwords if line.strip()]))
