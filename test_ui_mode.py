@@ -93,6 +93,10 @@ class UiModeTests(unittest.TestCase):
                 gui.notebook.select(tab)
                 gui.update()
                 self.assertLessEqual(tab.winfo_reqwidth(), tab.winfo_width())
+
+            gui.set_advanced_visible(False)
+            gui.update()
+            self.assertTrue(gui.launcher.winfo_ismapped())
         finally:
             gui.destroy()
 
