@@ -1061,8 +1061,6 @@ class PasswordToolGUI(tk.Tk):
         state = "normal" if visible else "hidden"
         for tab in self._advanced_tabs:
             self.notebook.tab(tab, state=state)
-        if hasattr(self, "launcher"):
-            self.launcher.grid_remove() if visible else self.launcher.grid()
         self.advanced_toggle.configure(text="隱藏進階工具" if visible else "顯示進階工具")
 
     def set_candidate_options_visible(self, visible: bool) -> None:
@@ -1178,7 +1176,6 @@ class PasswordToolGUI(tk.Tk):
         frame.columnconfigure(1, weight=1)
         ttk.Label(frame, text="壓縮包 / 加密檔轉雜湊", style="Header.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
         self._row(frame, 1, "來源檔案", self.extract_input, "file")
-        ttk.Button(frame, text="建議輸出路徑", command=self.suggest_extract_output).grid(row=1, column=3, padx=(8, 0))
         self._row(frame, 2, "輸出雜湊檔", self.extract_output, None)
         ttk.Button(frame, text="另存", command=lambda: self._browse_save(self.extract_output, ".hash")).grid(row=2, column=2, padx=(8, 0))
 
@@ -1195,13 +1192,14 @@ class PasswordToolGUI(tk.Tk):
 
         checks = ttk.Frame(frame)
         checks.grid(row=5, column=1, sticky="w", pady=4)
-        ttk.Checkbutton(checks, text="中文/空白路徑使用安全暫存名", variable=self.extract_safe_copy).pack(side="left", padx=(0, 14))
-        ttk.Checkbutton(checks, text="完成後填入 Hashcat", variable=self.extract_fill_hashcat).pack(side="left", padx=(0, 14))
-        ttk.Checkbutton(checks, text="完成後填入 John", variable=self.extract_fill_john).pack(side="left")
+        ttk.Checkbutton(checks, text="中文/空白路徑使用安全暫存名", variable=self.extract_safe_copy).grid(row=0, column=0, columnspan=2, sticky="w")
+        ttk.Checkbutton(checks, text="完成後填入 Hashcat", variable=self.extract_fill_hashcat).grid(row=1, column=0, sticky="w", pady=(4, 0), padx=(0, 14))
+        ttk.Checkbutton(checks, text="完成後填入 John", variable=self.extract_fill_john).grid(row=1, column=1, sticky="w", pady=(4, 0))
 
         buttons = ttk.Frame(frame)
-        buttons.grid(row=6, column=1, sticky="w", pady=(10, 8))
+        buttons.grid(row=6, column=0, columnspan=3, sticky="w", pady=(10, 8))
         ttk.Button(buttons, text="開始轉換", command=self.start_extract).pack(side="left", padx=(0, 8))
+        ttk.Button(buttons, text="建議輸出", command=self.suggest_extract_output).pack(side="left", padx=(0, 8))
         ttk.Button(buttons, text="開啟輸出資料夾", command=self.open_output_folder).pack(side="left", padx=(0, 8))
         ttk.Button(buttons, text="填入兩套工具", command=self.fill_hash_targets).pack(side="left")
 
@@ -1209,7 +1207,7 @@ class PasswordToolGUI(tk.Tk):
             "支援 ZIP/RAR/7Z、Office、PDF、DMG、GPG、KeePass、BitLocker 等 John 轉換器。\n"
             "缺少 hashcat / John 會自動下載；.pl 轉換器仍需要手動安裝 Perl。"
         )
-        ttk.Label(frame, text=info, foreground="#555555", wraplength=880).grid(row=7, column=1, columnspan=3, sticky="w", pady=(8, 0))
+        ttk.Label(frame, text=info, foreground="#555555", wraplength=560).grid(row=7, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
     def _build_hashcat_tab(self) -> None:
         self.hashcat_hash_file = tk.StringVar()
@@ -1284,15 +1282,14 @@ class PasswordToolGUI(tk.Tk):
             ttk.Button(buttons, text=label, command=command).grid(row=row, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0), pady=(0 if row == 0 else 8, 0))
 
         controls = ttk.Frame(frame)
-        controls.grid(row=13, column=1, sticky="w", pady=4)
-        ttk.Button(controls, text="狀態(s)", command=lambda: self.runner.send_key("s")).pack(side="left", padx=(0, 8))
-        ttk.Button(controls, text="暫停(p)", command=lambda: self.runner.send_key("p")).pack(side="left", padx=(0, 8))
-        ttk.Button(controls, text="繼續(r)", command=lambda: self.runner.send_key("r")).pack(side="left", padx=(0, 8))
-        ttk.Button(controls, text="檢查點(c)", command=lambda: self.runner.send_key("c")).pack(side="left", padx=(0, 8))
-        ttk.Button(controls, text="離開(q)", command=lambda: self.runner.send_key("q")).pack(side="left")
+        controls.grid(row=13, column=1, sticky="ew", pady=4)
+        for idx, (label, key) in enumerate([("狀態(s)", "s"), ("暫停(p)", "p"), ("繼續(r)", "r"), ("檢查點(c)", "c"), ("離開(q)", "q")]):
+            row, column = divmod(idx, 2)
+            controls.columnconfigure(column, weight=1)
+            ttk.Button(controls, text=label, command=lambda value=key: self.runner.send_key(value)).grid(row=row, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0), pady=(0 if row == 0 else 8, 0))
 
         note = "進階參數會原樣加入命令，可使用 hashcat 全部選項；GUI 不顯示任何命令視窗。"
-        ttk.Label(frame, text=note, foreground="#555555").grid(row=14, column=1, sticky="w", pady=(8, 0))
+        ttk.Label(frame, text=note, foreground="#555555", wraplength=560).grid(row=14, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
     def _build_john_tab(self) -> None:
         self.john_hash_file = tk.StringVar()
@@ -1325,9 +1322,9 @@ class PasswordToolGUI(tk.Tk):
         compact.columnconfigure(1, weight=1)
         ttk.Label(frame, text="Session / Fork").grid(row=7, column=0, sticky="w", padx=(0, 8), pady=4)
         ttk.Label(compact, text="Session").grid(row=0, column=0, sticky="w")
-        ttk.Entry(compact, textvariable=self.john_session).grid(row=0, column=1, sticky="ew", padx=(6, 16))
-        ttk.Label(compact, text="--fork").grid(row=0, column=2, sticky="w")
-        ttk.Entry(compact, textvariable=self.john_fork, width=8).grid(row=0, column=3, sticky="w", padx=(6, 0))
+        ttk.Entry(compact, textvariable=self.john_session).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+        ttk.Label(compact, text="--fork").grid(row=1, column=0, sticky="w", pady=(4, 0))
+        ttk.Entry(compact, textvariable=self.john_fork, width=8).grid(row=1, column=1, sticky="w", padx=(6, 0), pady=(4, 0))
 
         ttk.Label(frame, text="進階參數").grid(row=8, column=0, sticky="w", padx=(0, 8), pady=4)
         ttk.Entry(frame, textvariable=self.john_extra).grid(row=8, column=1, sticky="ew", pady=4)
@@ -1345,7 +1342,7 @@ class PasswordToolGUI(tk.Tk):
             ttk.Button(buttons, text=label, command=command).grid(row=row, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0), pady=(0 if row == 0 else 8, 0))
 
         note = "John 也可直接在進階參數使用所有官方選項，例如 --incremental、--external、--subsets。"
-        ttk.Label(frame, text=note, foreground="#555555").grid(row=10, column=1, sticky="w", pady=(8, 0))
+        ttk.Label(frame, text=note, foreground="#555555", wraplength=560).grid(row=10, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
     def _build_output_tab(self) -> None:
         frame = self.output_tab
@@ -1481,12 +1478,12 @@ class PasswordToolGUI(tk.Tk):
             ("健康檢查", self.health_check), ("開啟輸出資料夾", self.open_output_folder),
             ("開啟設定檔", self.open_config_file), ("匯入設定檔", self.import_config_file),
         ]):
-            row, column = divmod(idx, 3)
+            row, column = divmod(idx, 2)
             buttons.columnconfigure(column, weight=1)
             ttk.Button(buttons, text=label, command=command).grid(row=row, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0), pady=(0 if row == 0 else 8, 0))
-        ttk.Label(frame, text=f"目前設定檔：{CONFIG_PATH}", foreground="#555555", wraplength=860).grid(row=len(rows) + 2, column=1, columnspan=2, sticky="w", pady=(8, 0))
+        ttk.Label(frame, text=f"目前設定檔：{CONFIG_PATH}", foreground="#555555", wraplength=560).grid(row=len(rows) + 2, column=0, columnspan=3, sticky="w", pady=(8, 0))
         tip = "Perl 未安裝時，7z2john.pl、pdf2john.pl 等 .pl 轉換器會無法使用；安裝後在此指定路徑即可。"
-        ttk.Label(frame, text=tip, foreground="#555555", wraplength=860).grid(row=len(rows) + 3, column=1, columnspan=2, sticky="w", pady=(8, 0))
+        ttk.Label(frame, text=tip, foreground="#555555", wraplength=560).grid(row=len(rows) + 3, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
     def _build_help_tab(self) -> None:
         frame = self.help_tab
