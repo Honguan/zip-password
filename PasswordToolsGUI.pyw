@@ -8,6 +8,7 @@ import queue
 import re
 import shlex
 import shutil
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -68,8 +69,12 @@ ACCENT = "#2563EB"
 ACCENT_DARK = "#1E40AF"
 DANGER = "#DC2626"
 HASHCAT_DOWNLOAD_PAGE = "https://hashcat.net/hashcat/"
-JOHN_RELEASE_API = "https://api.github.com/repos/openwall/john-packages/releases/latest"
 JOHN_RELEASE_PAGE = "https://github.com/openwall/john-packages/releases/latest"
+HASHCAT_ARCHIVE_URL = "https://github.com/hashcat/hashcat/releases/download/v7.1.2/hashcat-7.1.2.7z"
+HASHCAT_ARCHIVE_SHA256 = "80db0316387794ce9d14ed376da75b8a7742972485b45db790f5f8260307ff98"
+JOHN_ARCHIVE_URL = "https://github.com/openwall/john-packages/releases/download/v1.9.1-ce/winX64_1_JtR.7z"
+JOHN_ARCHIVE_SHA256 = "8259f751378fd0f81a298e52c1277d9c6b08a0d5eb6ba66c46d5dc25b9de3607"
+OFFICIAL_DOWNLOAD_HOSTS = frozenset({"github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"})
 PERL_DOWNLOAD_PAGE = "https://strawberryperl.com/"
 SEVENZIP_DOWNLOAD_PAGE = "https://www.7-zip.org/download.html"
 PYTHON_DOWNLOAD_PAGE = "https://www.python.org/downloads/windows/"
@@ -359,64 +364,73 @@ class SetupError(RuntimeError):
         self.url = url
 
 
-def urlopen_text(url: str, timeout: int = 30) -> str:
-    request = urllib.request.Request(url, headers={"User-Agent": "PasswordToolsGUI/1.0"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        charset = response.headers.get_content_charset() or "utf-8"
-        return response.read().decode(charset, errors="replace")
+def validate_download_url(url: str, allowed_hosts: frozenset[str]) -> None:
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme != "https" or parsed.username or parsed.password or parsed.hostname not in allowed_hosts:
+        raise SetupError(f"拒絕非官方下載來源：{url}")
 
 
-def latest_hashcat_url() -> str:
-    html = urlopen_text(HASHCAT_DOWNLOAD_PAGE)
-    links = re.findall(r'href=["\']([^"\']*hashcat-[0-9][0-9.]*\.7z)["\']', html, flags=re.I)
-    if not links:
-        raise SetupError("無法從 hashcat 官方頁面找到 binary 下載連結。", HASHCAT_DOWNLOAD_PAGE)
-
-    def version_key(link: str) -> tuple[int, ...]:
-        match = re.search(r"hashcat-([0-9.]+)\.7z", link)
-        if not match:
-            return (0,)
-        return tuple(int(part) for part in match.group(1).split(".") if part.isdigit())
-
-    best = max(links, key=version_key)
-    return urllib.parse.urljoin(HASHCAT_DOWNLOAD_PAGE, best)
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
-def latest_john_url() -> str:
-    data = json.loads(urlopen_text(JOHN_RELEASE_API))
-    assets = data.get("assets", [])
-    for asset in assets:
-        name = str(asset.get("name", "")).lower()
-        if "win" in name and "x64" in name and name.endswith((".7z", ".zip")):
-            url = str(asset.get("browser_download_url", ""))
-            if url:
-                return url
-    raise SetupError("無法從 John 最新 release 找到 Windows x64 下載檔。", JOHN_RELEASE_PAGE)
-
-
-def download_file(url: str, dest: Path, log_cb=None) -> Path:
+def download_file(
+    url: str, dest: Path, log_cb=None, expected_sha256: str = "",
+    allowed_hosts: frozenset[str] | None = None,
+) -> Path:
+    if allowed_hosts:
+        validate_download_url(url, allowed_hosts)
+    if expected_sha256 and dest.is_file() and file_sha256(dest).lower() == expected_sha256.lower():
+        return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
     temp = dest.with_suffix(dest.suffix + ".part")
+    temp.unlink(missing_ok=True)
     request = urllib.request.Request(url, headers={"User-Agent": "PasswordToolsGUI/1.0"})
-    with urllib.request.urlopen(request, timeout=60) as response, temp.open("wb") as fh:
-        total = int(response.headers.get("Content-Length") or "0")
-        done = 0
-        last_report = 0.0
-        while True:
-            chunk = response.read(1024 * 512)
-            if not chunk:
-                break
-            fh.write(chunk)
-            done += len(chunk)
-            now = time.time()
-            if log_cb and now - last_report > 1.5:
-                if total:
-                    log_cb(f"下載中 {dest.name}: {done / total:.0%}\n")
-                else:
-                    log_cb(f"下載中 {dest.name}: {done // 1048576} MB\n")
-                last_report = now
-    temp.replace(dest)
-    return dest
+    try:
+        with urllib.request.urlopen(request, timeout=60, context=ssl.create_default_context()) as response, temp.open("wb") as fh:
+            if allowed_hosts:
+                validate_download_url(response.geturl(), allowed_hosts)
+            total = int(response.headers.get("Content-Length") or "0")
+            done = 0
+            last_report = 0.0
+            while True:
+                chunk = response.read(1024 * 512)
+                if not chunk:
+                    break
+                fh.write(chunk)
+                done += len(chunk)
+                now = time.time()
+                if log_cb and now - last_report > 1.5:
+                    if total:
+                        log_cb(f"下載中 {dest.name}: {done / total:.0%}\n")
+                    else:
+                        log_cb(f"下載中 {dest.name}: {done // 1048576} MB\n")
+                    last_report = now
+        if total and done != total:
+            raise SetupError(f"下載不完整：預期 {total} bytes，實際 {done} bytes。")
+        if expected_sha256 and file_sha256(temp).lower() != expected_sha256.lower():
+            raise SetupError(f"下載檔案 SHA-256 驗證失敗：{dest.name}")
+        temp.replace(dest)
+        return dest
+    except Exception:
+        temp.unlink(missing_ok=True)
+        raise
+
+
+def replace_tool_directory(staged: Path, target: Path) -> None:
+    backup = staged.parent / "previous"
+    if target.exists():
+        target.replace(backup)
+    try:
+        staged.replace(target)
+    except Exception:
+        if backup.exists():
+            backup.replace(target)
+        raise
 
 
 def extract_archive(archive: Path, dest: Path, log_cb=None) -> None:
@@ -1874,30 +1888,39 @@ class PasswordToolGUI(tk.Tk):
         self.quick_status.set("工具環境已就緒。可直接選擇檔案開始。")
 
     def download_hashcat(self) -> str:
-        url = latest_hashcat_url()
+        url = HASHCAT_ARCHIVE_URL
         archive_name = Path(urllib.parse.urlparse(url).path).name or "hashcat.7z"
         archive = DOWNLOADS_DIR / archive_name
-        if not archive.exists():
-            self.enqueue_log(f"下載：{url}\n")
-            download_file(url, archive, self.enqueue_log)
-        extract_archive(archive, TOOLS_DIR / "hashcat", self.enqueue_log)
-        path = find_hashcat_under(TOOLS_DIR / "hashcat")
-        if not path:
-            raise SetupError("hashcat 已下載但找不到 hashcat.exe。", HASHCAT_DOWNLOAD_PAGE)
-        return path
+        self.enqueue_log(f"下載：{url}\n")
+        download_file(url, archive, self.enqueue_log, HASHCAT_ARCHIVE_SHA256, OFFICIAL_DOWNLOAD_HOSTS)
+        with tempfile.TemporaryDirectory(prefix="hashcat_install_", dir=TOOL_TMP_DIR) as temp:
+            staged = Path(temp) / "payload"
+            extract_archive(archive, staged, self.enqueue_log)
+            path = find_hashcat_under(staged)
+            if not path:
+                raise SetupError("hashcat 已下載但找不到 hashcat.exe。", HASHCAT_DOWNLOAD_PAGE)
+            relative_path = Path(path).relative_to(staged)
+            target = TOOLS_DIR / "hashcat"
+            replace_tool_directory(staged, target)
+        return str(target / relative_path)
 
     def download_john(self) -> tuple[str, str]:
-        url = latest_john_url()
+        url = JOHN_ARCHIVE_URL
         archive_name = Path(urllib.parse.urlparse(url).path).name or "john.7z"
         archive = DOWNLOADS_DIR / archive_name
-        if not archive.exists():
-            self.enqueue_log(f"下載：{url}\n")
-            download_file(url, archive, self.enqueue_log)
-        extract_archive(archive, TOOLS_DIR / "JohnRipper", self.enqueue_log)
-        john_path, john_run = find_john_under(TOOLS_DIR / "JohnRipper")
-        if not john_path:
-            raise SetupError("John 已下載但找不到 john.exe。", JOHN_RELEASE_PAGE)
-        return john_path, john_run
+        self.enqueue_log(f"下載：{url}\n")
+        download_file(url, archive, self.enqueue_log, JOHN_ARCHIVE_SHA256, OFFICIAL_DOWNLOAD_HOSTS)
+        with tempfile.TemporaryDirectory(prefix="john_install_", dir=TOOL_TMP_DIR) as temp:
+            staged = Path(temp) / "payload"
+            extract_archive(archive, staged, self.enqueue_log)
+            john_path, john_run = find_john_under(staged)
+            if not john_path:
+                raise SetupError("John 已下載但找不到 john.exe。", JOHN_RELEASE_PAGE)
+            john_relative = Path(john_path).relative_to(staged)
+            run_relative = Path(john_run).relative_to(staged)
+            target = TOOLS_DIR / "JohnRipper"
+            replace_tool_directory(staged, target)
+        return str(target / john_relative), str(target / run_relative)
 
     def download_selected_wordlist(self) -> None:
         selected = self.common_wordlist.get()
