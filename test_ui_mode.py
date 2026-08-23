@@ -73,6 +73,21 @@ class UiModeTests(unittest.TestCase):
         self.assertTrue(gui.candidate_options.visible)
         self.assertEqual(gui.candidate_options_toggle.text, "收起候選選項")
 
+    def test_minimum_window_keeps_primary_sections_visible(self):
+        gui = APP.PasswordToolGUI()
+        try:
+            gui.geometry("1100x720")
+            gui.update()
+            visible_launcher_children = [child for child in gui.launcher.winfo_children() if child.winfo_ismapped()]
+
+            self.assertLessEqual(
+                max(child.winfo_y() + child.winfo_height() for child in visible_launcher_children),
+                gui.launcher.winfo_height(),
+            )
+            self.assertTrue(all(child.winfo_ismapped() for child in gui.output_tab.winfo_children()))
+        finally:
+            gui.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()
