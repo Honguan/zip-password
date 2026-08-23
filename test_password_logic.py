@@ -60,6 +60,22 @@ class PasswordLogicTests(TestCase):
                 self.assertEqual(logic.detect_hashcat_mode(hash_text), expected)
         self.assertEqual(logic.extract_passwords_from_show("archive.zip:secret\n0 passwords cracked\n"), ["secret"])
 
+    def test_hashcat_zip_output_discards_john_metadata_only(self):
+        text = (
+            "archive.zip:$zip2$*0*3*hash$/zip2$:archive.zip:folder/file.txt\n"
+            "archive.zip:$pkzip2$*1*2*hash$/pkzip2$:archive.zip:folder/file.txt\n"
+            "archive.zip:$rar5$16$hash:metadata\n"
+            "$office$*2013*hash:metadata\n"
+        )
+
+        self.assertEqual(
+            logic.prepare_hash_output(text, "hashcat"),
+            "$zip2$*0*3*hash$/zip2$\n"
+            "$pkzip2$*1*2*hash$/pkzip2$\n"
+            "$rar5$16$hash:metadata\n"
+            "$office$*2013*hash:metadata\n",
+        )
+
 
 if __name__ == "__main__":
     main()

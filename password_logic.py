@@ -48,6 +48,12 @@ def prepare_hash_output(text: str, target: str) -> str:
         dollar = line.find("$")
         if dollar > 0 and ":" in line[:dollar]:
             line = line[dollar:]
+        lower = line.lower()
+        for marker in ("$/zip2$", "$/pkzip2$"):
+            end = lower.find(marker)
+            if end >= 0:
+                line = line[:end + len(marker)]
+                break
         cleaned.append(line)
     return "\n".join(cleaned) + ("\n" if cleaned else "")
 
