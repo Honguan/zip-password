@@ -740,18 +740,20 @@ class CommandRunner:
         self.process: subprocess.Popen[bytes] | None = None
         self.thread: threading.Thread | None = None
         self.lock = threading.Lock()
+        self.job_lock = threading.Lock()
         self.current_name = ""
         self.log_path: Path | None = None
         self.on_finish = None
         self.started_at: float | None = None
         self.last_elapsed: float | None = None
+        self.cancel_requested = False
 
     def running(self) -> bool:
         with self.lock:
             return self.process is not None and self.process.poll() is None
 
     def start(self, name: str, args: list[str], cwd: str | None = None, log_path: Path | None = None, on_finish=None) -> bool:
-        if self.running():
+        if not self.job_lock.acquire(blocking=False):
             messagebox.showwarning("已有工作執行中", "請先停止或等待目前工作完成。")
             return False
         creationflags, startupinfo = hidden_startup()
@@ -766,6 +768,7 @@ class CommandRunner:
                 startupinfo=startupinfo,
             )
         except Exception as exc:
+            self.job_lock.release()
             messagebox.showerror("啟動失敗", str(exc))
             return False
         with self.lock:
@@ -775,6 +778,7 @@ class CommandRunner:
             self.on_finish = on_finish
             self.started_at = time.monotonic()
             self.last_elapsed = None
+            self.cancel_requested = False
         start_text = (
             f"\n[{time.strftime('%H:%M:%S')}] 啟動 {name}\n"
             f"工作目錄：{cwd or Path.cwd()}\n"
@@ -788,6 +792,47 @@ class CommandRunner:
         self.thread.start()
         self.app.set_status(f"{name} 執行中")
         return True
+
+    def capture(self, name: str, args: list[str], cwd: str | None = None) -> subprocess.CompletedProcess[bytes]:
+        if not self.job_lock.acquire(blocking=False):
+            raise RuntimeError("已有工作執行中，請先停止或等待目前工作完成。")
+        creationflags, startupinfo = hidden_startup()
+        try:
+            proc = subprocess.Popen(
+                args,
+                cwd=cwd or None,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=creationflags,
+                startupinfo=startupinfo,
+            )
+        except Exception:
+            self.job_lock.release()
+            raise
+        with self.lock:
+            self.process = proc
+            self.current_name = name
+            self.started_at = time.monotonic()
+            self.last_elapsed = None
+            self.cancel_requested = False
+        self.app.enqueue_status(f"{name} 執行中")
+        cancelled = False
+        try:
+            stdout, stderr = proc.communicate()
+            with self.lock:
+                cancelled = self.cancel_requested
+            if cancelled:
+                raise InterruptedError(f"{name} 已停止")
+            return subprocess.CompletedProcess(args, proc.returncode, stdout, stderr)
+        finally:
+            with self.lock:
+                if self.process is proc:
+                    self.process = None
+                    if self.started_at is not None:
+                        self.last_elapsed = time.monotonic() - self.started_at
+                    self.started_at = None
+            self.job_lock.release()
+            self.app.enqueue_status(f"{name} {'已停止' if cancelled else '已結束'}")
 
     def elapsed_seconds(self) -> float | None:
         with self.lock:
@@ -829,7 +874,11 @@ class CommandRunner:
                 finish_callback = self.on_finish
                 self.log_path = None
                 self.on_finish = None
-        self.app.enqueue_status(f"{name} 已結束")
+                cancelled = self.cancel_requested
+            else:
+                cancelled = False
+        self.job_lock.release()
+        self.app.enqueue_status(f"{name} {'已停止' if cancelled else '已結束'}")
         if finish_callback:
             self.app.after(0, lambda: finish_callback(code))
 
@@ -849,6 +898,8 @@ class CommandRunner:
     def stop(self) -> None:
         with self.lock:
             proc = self.process
+            if proc and proc.poll() is None:
+                self.cancel_requested = True
         if not proc or proc.poll() is not None:
             messagebox.showinfo("無執行中工作", "目前沒有可停止的工作。")
             return
@@ -857,6 +908,17 @@ class CommandRunner:
             self.app.log("\n[控制] 已要求停止目前工作\n")
         except Exception as exc:
             messagebox.showerror("停止失敗", str(exc))
+
+    def wait(self, timeout: float = 5) -> None:
+        with self.lock:
+            proc = self.process
+        if not proc or proc.poll() is not None:
+            return
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
 
 
 class PasswordToolGUI(tk.Tk):
@@ -875,6 +937,9 @@ class PasswordToolGUI(tk.Tk):
         self.status_queue: queue.Queue[str] = queue.Queue()
         self._tools_setup_lock = threading.Lock()
         self.runner = CommandRunner(self)
+        self.extract_thread: threading.Thread | None = None
+        self.auto_thread: threading.Thread | None = None
+        self.conversion_cancel = threading.Event()
         self.converter_names: list[str] = []
         self.setting_vars: dict[str, tk.StringVar] = {}
         self._build_style()
@@ -952,7 +1017,7 @@ class PasswordToolGUI(tk.Tk):
         ttk.Button(top_actions, text="檢查環境", command=lambda: self.ensure_tools_async(force_download=True)).pack(side="left", padx=(0, 8))
         self.advanced_toggle = ttk.Button(top_actions, command=lambda: self.set_advanced_visible(not self._advanced_visible))
         self.advanced_toggle.pack(side="left", padx=(0, 8))
-        ttk.Button(top_actions, text="停止", command=self.runner.stop, style="Danger.TButton").pack(side="left")
+        ttk.Button(top_actions, text="停止", command=self.stop_current_work, style="Danger.TButton").pack(side="left")
 
         body = ttk.Frame(root, style="Shell.TFrame")
         body.grid(row=1, column=0, sticky="nsew")
@@ -1099,7 +1164,7 @@ class PasswordToolGUI(tk.Tk):
 
         ttk.Checkbutton(parent, text="缺少 hashcat / John 時自動下載", variable=self.quick_auto_download, style="Card.TCheckbutton").grid(row=17, column=0, sticky="w", pady=(0, 10))
         ttk.Button(parent, text="檢查/下載環境", command=lambda: self.ensure_tools_async(force_download=True)).grid(row=18, column=0, sticky="ew", pady=(0, 8))
-        ttk.Button(parent, text="停止目前工作", command=self.runner.stop, style="Danger.TButton").grid(row=19, column=0, sticky="ew", pady=(0, 14))
+        ttk.Button(parent, text="停止目前工作", command=self.stop_current_work, style="Danger.TButton").grid(row=19, column=0, sticky="ew", pady=(0, 14))
 
         status_box = ttk.Frame(parent, padding=12, style="Soft.TFrame")
         status_box.grid(row=20, column=0, sticky="ew")
@@ -1183,7 +1248,7 @@ class PasswordToolGUI(tk.Tk):
         buttons.grid(row=7, column=0, columnspan=3, sticky="w", pady=(14, 0))
         ttk.Button(buttons, text="開始自動破解", command=self.auto_start_selected, style="Accent.TButton").pack(side="left", padx=(0, 10))
         ttk.Button(buttons, text="檢查/下載環境", command=lambda: self.ensure_tools_async(force_download=True)).pack(side="left", padx=(0, 10))
-        ttk.Button(buttons, text="停止目前工作", command=self.runner.stop, style="Danger.TButton").pack(side="left")
+        ttk.Button(buttons, text="停止目前工作", command=self.stop_current_work, style="Danger.TButton").pack(side="left")
 
         status_card = self._card(frame, 2, 0, pady=(14, 0))
         ttk.Label(status_card, text="目前狀態", style="MetricName.TLabel").pack(anchor="w")
@@ -1398,7 +1463,7 @@ class PasswordToolGUI(tk.Tk):
         actions.grid(row=0, column=1, rowspan=2, sticky="e")
         ttk.Button(actions, text="清空記錄", command=self.clear_output_view).pack(side="left", padx=(0, 10))
         ttk.Button(actions, text="開啟輸出資料夾", command=self.open_output_folder).pack(side="left", padx=(0, 10))
-        ttk.Button(actions, text="停止目前工作", command=self.runner.stop, style="Danger.TButton").pack(side="left")
+        ttk.Button(actions, text="停止目前工作", command=self.stop_current_work, style="Danger.TButton").pack(side="left")
 
         metrics = ttk.Frame(frame, style="App.TFrame")
         metrics.grid(row=1, column=0, sticky="ew", pady=(12, 10))
@@ -1978,7 +2043,9 @@ class PasswordToolGUI(tk.Tk):
         if not src.exists():
             messagebox.showerror("檔案不存在", "請先選擇要破解的檔案。")
             return
-        if self.runner.running():
+        if self.runner.running() or any(
+            thread and thread.is_alive() for thread in (self.extract_thread, self.auto_thread)
+        ):
             messagebox.showwarning("已有工作執行中", "請先停止或等待目前工作完成。")
             return
         self.config_data["default_wordlist"] = self.quick_wordlist.get().strip()
@@ -2008,8 +2075,9 @@ class PasswordToolGUI(tk.Tk):
         self.set_cracked_passwords([])
         self.update_jobs_tree(name=src.name, status="準備中")
         wordlist = self.quick_wordlist.get().strip()
-        thread = threading.Thread(target=self._auto_workflow, args=(src, wordlist), daemon=True)
-        thread.start()
+        self.conversion_cancel.clear()
+        self.auto_thread = threading.Thread(target=self._auto_workflow, args=(src, wordlist), daemon=True)
+        self.auto_thread.start()
 
     def _auto_output_paths(self, src: Path) -> dict[str, Path]:
         out_dir = result_dir_for_source(src)
@@ -2190,6 +2258,9 @@ class PasswordToolGUI(tk.Tk):
                 self.after(0, lambda: self.start_auto_stages(stages, 0))
             else:
                 raise SetupError("找不到可用的 hashcat 或 John。", HASHCAT_DOWNLOAD_PAGE)
+        except InterruptedError as exc:
+            self.enqueue_log(f"\n[自動流程停止] {exc}\n")
+            self.enqueue_status("自動流程已停止")
         except SetupError as exc:
             message = str(exc)
             if exc.url:
@@ -2207,17 +2278,13 @@ class PasswordToolGUI(tk.Tk):
             if self.extract_safe_copy.get():
                 temp = tempfile.TemporaryDirectory(prefix="ptgui_")
                 input_for_tool = self.safe_converter_input(src, Path(temp.name))
+            if self.conversion_cancel.is_set():
+                raise InterruptedError("雜湊轉換已停止")
             cmd = self.converter_command(converter, input_for_tool)
-            creationflags, startupinfo = hidden_startup()
             self.enqueue_log(f"\n[{time.strftime('%H:%M:%S')}] 自動轉換：{converter}\n")
-            proc = subprocess.run(
-                cmd,
-                cwd=self.config_data.get("john_run_dir") or None,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                creationflags=creationflags,
-                startupinfo=startupinfo,
-            )
+            proc = self.runner.capture("雜湊轉換", cmd, cwd=self.config_data.get("john_run_dir") or None)
+            if self.conversion_cancel.is_set():
+                raise InterruptedError("雜湊轉換已停止")
             stderr = clean_output(decode_bytes(proc.stderr))
             if stderr.strip():
                 self.enqueue_log(stderr + ("\n" if not stderr.endswith("\n") else ""))
@@ -2500,8 +2567,14 @@ class PasswordToolGUI(tk.Tk):
         if not converter:
             messagebox.showerror("無法偵測轉換器", "請手動選擇 *2john 轉換器。")
             return
-        thread = threading.Thread(target=self._extract_worker, args=(src, out_path, converter), daemon=True)
-        thread.start()
+        if self.runner.running() or any(
+            thread and thread.is_alive() for thread in (self.extract_thread, self.auto_thread)
+        ):
+            messagebox.showwarning("已有工作執行中", "請先停止或等待目前工作完成。")
+            return
+        self.conversion_cancel.clear()
+        self.extract_thread = threading.Thread(target=self._extract_worker, args=(src, out_path, converter), daemon=True)
+        self.extract_thread.start()
 
     def _extract_worker(self, src: Path, out_path: Path, converter: str) -> None:
         self.enqueue_status("雜湊轉換中")
@@ -2511,18 +2584,13 @@ class PasswordToolGUI(tk.Tk):
             if self.extract_safe_copy.get():
                 temp = tempfile.TemporaryDirectory(prefix="ptgui_")
                 input_for_tool = self.safe_converter_input(src, Path(temp.name))
+            if self.conversion_cancel.is_set():
+                raise InterruptedError("雜湊轉換已停止")
             cmd = self.converter_command(converter, input_for_tool)
-            creationflags, startupinfo = hidden_startup()
             self.enqueue_log(f"\n[{time.strftime('%H:%M:%S')}] 雜湊轉換：{converter}\n{quote_command(cmd)}\n\n")
-            proc = subprocess.run(
-                cmd,
-                cwd=self.config_data.get("john_run_dir") or None,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                creationflags=creationflags,
-                startupinfo=startupinfo,
-                timeout=None,
-            )
+            proc = self.runner.capture("雜湊轉換", cmd, cwd=self.config_data.get("john_run_dir") or None)
+            if self.conversion_cancel.is_set():
+                raise InterruptedError("雜湊轉換已停止")
             stdout = clean_output(decode_bytes(proc.stdout))
             stderr = clean_output(decode_bytes(proc.stderr))
             if stderr.strip():
@@ -2541,6 +2609,9 @@ class PasswordToolGUI(tk.Tk):
             if self.extract_fill_john.get():
                 self.john_hash_file.set(str(out_path))
             self.enqueue_status("雜湊轉換完成")
+        except InterruptedError as exc:
+            self.enqueue_log(f"\n[停止] {exc}\n")
+            self.enqueue_status("雜湊轉換已停止")
         except SetupError as exc:
             message = str(exc)
             if exc.url:
@@ -2894,11 +2965,30 @@ class PasswordToolGUI(tk.Tk):
         if not perl_path:
             self.log("[健康檢查] perl: 未設定，.pl 轉換器不可用\n")
 
-    def _on_close(self) -> None:
+    def stop_current_work(self) -> None:
+        workers = [thread for thread in (self.extract_thread, self.auto_thread) if thread and thread.is_alive()]
+        if workers:
+            self.conversion_cancel.set()
         if self.runner.running():
+            self.runner.stop()
+        elif workers:
+            self.log("\n[控制] 已要求停止目前工作\n")
+        else:
+            self.runner.stop()
+
+    def _on_close(self) -> None:
+        extract_running = self.extract_thread is not None and self.extract_thread.is_alive()
+        auto_running = self.auto_thread is not None and self.auto_thread.is_alive()
+        if self.runner.running() or extract_running or auto_running:
             if not messagebox.askyesno("仍有工作執行中", "關閉前要停止目前工作嗎？"):
                 return
-            self.runner.stop()
+            self.stop_current_work()
+            if self.runner.running():
+                self.runner.wait()
+            if extract_running:
+                self.extract_thread.join()
+            if auto_running:
+                self.auto_thread.join()
         self.destroy()
 
 
