@@ -300,7 +300,6 @@ def default_config() -> dict[str, str]:
         "combo_wordlist": "",
         "combo_key": "",
         "output_dir": str(RESULTS_DIR),
-        "tools_dir": str(TOOLS_DIR),
     }
 
 
@@ -342,7 +341,6 @@ def load_config() -> dict[str, str]:
     for key, value in detected.items():
         if value:
             cfg[key] = value
-    cfg["tools_dir"] = str(TOOLS_DIR)
     if loaded_path and loaded_path != CONFIG_PATH:
         try:
             save_config(cfg)
@@ -1496,12 +1494,11 @@ class PasswordToolGUI(tk.Tk):
             ("combo_wordlist", "組合密碼檔"),
             ("combo_key", "組合 Key / 提示詞"),
             ("output_dir", "輸出目錄"),
-            ("tools_dir", "自動工具目錄"),
         ]
         for idx, (key, label) in enumerate(rows, start=1):
             var = tk.StringVar(value=self.config_data.get(key, ""))
             self.setting_vars[key] = var
-            browse = "dir" if key in {"john_run_dir", "output_dir", "tools_dir"} else ("file" if key not in {"auto_follow_order", "combo_key"} else None)
+            browse = "dir" if key in {"john_run_dir", "output_dir"} else ("file" if key not in {"auto_follow_order", "combo_key"} else None)
             self._row(frame, idx, label, var, browse)
         buttons = ttk.Frame(frame)
         buttons.grid(row=len(rows) + 1, column=1, sticky="w", pady=(12, 8))
@@ -1869,7 +1866,6 @@ class PasswordToolGUI(tk.Tk):
             self._tools_setup_lock.release()
 
     def apply_detected_tools_to_ui(self) -> None:
-        self.config_data["tools_dir"] = str(TOOLS_DIR)
         save_config(self.config_data)
         self.refresh_converters()
         self.sync_config_to_ui()
@@ -1969,7 +1965,6 @@ class PasswordToolGUI(tk.Tk):
             for key in default_config():
                 if key in data:
                     self.config_data[key] = data[key]
-            self.config_data["tools_dir"] = str(TOOLS_DIR)
             save_config(self.config_data)
             self.sync_config_to_ui()
             self.refresh_converters()
