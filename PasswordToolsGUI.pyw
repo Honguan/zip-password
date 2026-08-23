@@ -873,6 +873,7 @@ class PasswordToolGUI(tk.Tk):
             pass
         self.log_queue: queue.Queue[str] = queue.Queue()
         self.status_queue: queue.Queue[str] = queue.Queue()
+        self._tools_setup_lock = threading.Lock()
         self.runner = CommandRunner(self)
         self.converter_names: list[str] = []
         self.setting_vars: dict[str, tk.StringVar] = {}
@@ -1798,15 +1799,24 @@ class PasswordToolGUI(tk.Tk):
         self.ensure_tools_async(force_download=False)
 
     def ensure_tools_async(self, force_download: bool = False) -> None:
-        thread = threading.Thread(target=self._ensure_tools_worker, args=(force_download,), daemon=True)
-        thread.start()
-
-    def _ensure_tools_worker(self, force_download: bool = False) -> None:
-        auto_var = getattr(self, "quick_auto_download", None)
-        auto_download = force_download or (bool(auto_var.get()) if auto_var is not None else True)
-        self.enqueue_status("檢查工具環境中")
-        ensure_tool_dirs()
+        if not self._tools_setup_lock.acquire(blocking=False):
+            self.enqueue_status("工具環境檢查已在執行")
+            return
         try:
+            thread = threading.Thread(target=self._ensure_tools_worker, args=(force_download, True), daemon=True)
+            thread.start()
+        except Exception:
+            self._tools_setup_lock.release()
+            raise
+
+    def _ensure_tools_worker(self, force_download: bool = False, lock_acquired: bool = False) -> None:
+        if not lock_acquired:
+            self._tools_setup_lock.acquire()
+        try:
+            auto_var = getattr(self, "quick_auto_download", None)
+            auto_download = force_download or (bool(auto_var.get()) if auto_var is not None else True)
+            self.enqueue_status("檢查工具環境中")
+            ensure_tool_dirs()
             detected = find_tool_paths(self.config_data)
             self.config_data.update({k: v for k, v in detected.items() if v})
             if not self.config_data.get("hashcat_path") and auto_download:
@@ -1828,6 +1838,8 @@ class PasswordToolGUI(tk.Tk):
         except Exception as exc:
             self.enqueue_log(f"\n[環境錯誤] {exc}\n")
             self.enqueue_status("工具環境檢查失敗")
+        finally:
+            self._tools_setup_lock.release()
 
     def apply_detected_tools_to_ui(self) -> None:
         self.config_data["tools_dir"] = str(TOOLS_DIR)
