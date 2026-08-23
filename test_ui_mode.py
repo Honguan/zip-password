@@ -24,6 +24,17 @@ class FakeButton:
         self.text = kwargs["text"]
 
 
+class FakeFrame:
+    def __init__(self):
+        self.visible = True
+
+    def grid(self):
+        self.visible = True
+
+    def grid_remove(self):
+        self.visible = False
+
+
 class UiModeTests(unittest.TestCase):
     def test_tools_directory_is_not_an_editable_setting(self):
         self.assertNotIn("tools_dir", APP.default_config())
@@ -32,17 +43,50 @@ class UiModeTests(unittest.TestCase):
         gui = object.__new__(APP.PasswordToolGUI)
         gui.notebook = FakeNotebook()
         gui.advanced_toggle = FakeButton()
+        gui.launcher = FakeFrame()
         gui._advanced_tabs = ("extract", "hashcat", "john", "settings")
 
         gui.set_advanced_visible(False)
 
         self.assertEqual(gui.notebook.states, {tab: "hidden" for tab in gui._advanced_tabs})
         self.assertEqual(gui.advanced_toggle.text, "顯示進階工具")
+        self.assertTrue(gui.launcher.visible)
 
         gui.set_advanced_visible(True)
 
         self.assertEqual(gui.notebook.states, {tab: "normal" for tab in gui._advanced_tabs})
         self.assertEqual(gui.advanced_toggle.text, "隱藏進階工具")
+        self.assertFalse(gui.launcher.visible)
+
+    def test_optional_candidate_fields_can_be_collapsed(self):
+        gui = object.__new__(APP.PasswordToolGUI)
+        gui.candidate_options = FakeFrame()
+        gui.candidate_options_toggle = FakeButton()
+
+        gui.set_candidate_options_visible(False)
+
+        self.assertFalse(gui.candidate_options.visible)
+        self.assertEqual(gui.candidate_options_toggle.text, "顯示候選選項")
+
+        gui.set_candidate_options_visible(True)
+
+        self.assertTrue(gui.candidate_options.visible)
+        self.assertEqual(gui.candidate_options_toggle.text, "收起候選選項")
+
+    def test_minimum_window_keeps_primary_sections_visible(self):
+        gui = APP.PasswordToolGUI()
+        try:
+            gui.geometry("1100x720")
+            gui.update()
+            visible_launcher_children = [child for child in gui.launcher.winfo_children() if child.winfo_ismapped()]
+
+            self.assertLessEqual(
+                max(child.winfo_y() + child.winfo_height() for child in visible_launcher_children),
+                gui.launcher.winfo_height(),
+            )
+            self.assertTrue(all(child.winfo_ismapped() for child in gui.output_tab.winfo_children()))
+        finally:
+            gui.destroy()
 
 
 if __name__ == "__main__":

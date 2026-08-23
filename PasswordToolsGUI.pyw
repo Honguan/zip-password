@@ -922,8 +922,8 @@ class PasswordToolGUI(tk.Tk):
         load_private_font()
         super().__init__()
         self.title("密碼工具 GUI")
-        self.geometry("1360x860")
-        self.minsize(1180, 720)
+        self.geometry("1400x900")
+        self.minsize(1100, 720)
         self.config_data = load_config()
         try:
             save_config(self.config_data)
@@ -948,13 +948,13 @@ class PasswordToolGUI(tk.Tk):
 
     def _build_style(self) -> None:
         self.configure(bg=BG)
-        self.option_add("*Font", (UI_FONT, 10))
+        self.option_add("*Font", (UI_FONT, 11))
         style = ttk.Style(self)
         try:
             style.theme_use("clam")
         except Exception:
             pass
-        style.configure(".", font=(UI_FONT, 10), background=BG, foreground=TEXT)
+        style.configure(".", font=(UI_FONT, 11), background=BG, foreground=TEXT)
         style.configure("App.TFrame", background=BG)
         style.configure("Shell.TFrame", background=BG)
         style.configure("TopBar.TFrame", background=SURFACE, relief="solid", borderwidth=1)
@@ -967,15 +967,14 @@ class PasswordToolGUI(tk.Tk):
         style.configure("Soft.TLabel", background=SURFACE_2, foreground=TEXT)
         style.configure("Card.TLabel", background=SURFACE, foreground=TEXT)
         style.configure("Muted.TLabel", background=SURFACE, foreground=MUTED)
-        style.configure("Title.TLabel", background=BG, foreground=TEXT, font=(UI_FONT, 18, "bold"))
-        style.configure("PanelTitle.TLabel", background=SURFACE, foreground=TEXT, font=(UI_FONT, 15, "bold"))
-        style.configure("Header.TLabel", background=BG, foreground=TEXT, font=(UI_FONT, 12, "bold"))
-        style.configure("MetricValue.TLabel", background=SURFACE, foreground=TEXT, font=(MONO_FONT, 13, "bold"))
-        style.configure("MetricName.TLabel", background=SURFACE, foreground=MUTED, font=(UI_FONT, 9))
+        style.configure("Title.TLabel", background=BG, foreground=TEXT, font=(UI_FONT, 20, "bold"))
+        style.configure("PanelTitle.TLabel", background=SURFACE, foreground=TEXT, font=(UI_FONT, 16, "bold"))
+        style.configure("Header.TLabel", background=BG, foreground=TEXT, font=(UI_FONT, 14, "bold"))
+        style.configure("PanelHeader.TLabel", background=SURFACE, foreground=TEXT, font=(UI_FONT, 13, "bold"))
+        style.configure("MetricValue.TLabel", background=SURFACE, foreground=TEXT, font=(MONO_FONT, 14, "bold"))
+        style.configure("MetricName.TLabel", background=SURFACE, foreground=MUTED, font=(UI_FONT, 10))
         style.configure("Status.TLabel", anchor="w", background=BG, foreground=MUTED)
-        style.configure("Pill.TLabel", background="#EAF2FF", foreground=ACCENT_DARK, padding=(10, 4), font=(UI_FONT, 9, "bold"))
-        style.configure("StatusBar.TFrame", background="#F8FAFC")
-        style.configure("StatusBar.TLabel", background="#F8FAFC", foreground=TEXT, font=(UI_FONT, 9))
+        style.configure("Pill.TLabel", background="#EAF2FF", foreground=ACCENT_DARK, padding=(10, 4), font=(UI_FONT, 10, "bold"))
         style.configure("TButton", padding=(12, 7), background=SURFACE, foreground=TEXT, bordercolor=BORDER, lightcolor=SURFACE, darkcolor=BORDER)
         style.map("TButton", background=[("active", SURFACE_2), ("pressed", "#E4EAF3")])
         style.configure("Accent.TButton", padding=(14, 8), background=ACCENT, foreground="#FFFFFF", bordercolor=ACCENT, lightcolor=ACCENT, darkcolor=ACCENT_DARK)
@@ -991,9 +990,6 @@ class PasswordToolGUI(tk.Tk):
         style.configure("TNotebook.Tab", background="#E6ECF4", foreground=MUTED, padding=(16, 9), borderwidth=0)
         style.map("TNotebook.Tab", background=[("selected", SURFACE), ("active", "#F8FAFC")], foreground=[("selected", ACCENT), ("active", TEXT)])
         style.configure("Horizontal.TProgressbar", troughcolor=SURFACE_2, background=ACCENT, bordercolor=SURFACE_2, lightcolor=ACCENT, darkcolor=ACCENT)
-        style.configure("Treeview", background="#FFFFFF", fieldbackground="#FFFFFF", foreground=TEXT, rowheight=30, bordercolor="#E5E7EB", lightcolor="#E5E7EB", darkcolor="#E5E7EB", font=(UI_FONT, 10))
-        style.configure("Treeview.Heading", background="#FFFFFF", foreground=TEXT, relief="flat", bordercolor="#E5E7EB", font=(UI_FONT, 10))
-        style.map("Treeview", background=[("selected", "#E8F2FF")], foreground=[("selected", TEXT)])
 
     def _build_ui(self) -> None:
         root = ttk.Frame(self, padding=16, style="Shell.TFrame")
@@ -1006,12 +1002,11 @@ class PasswordToolGUI(tk.Tk):
         topbar.grid(row=0, column=0, sticky="ew", pady=(0, 14))
         topbar.columnconfigure(0, weight=1)
         ttk.Label(topbar, text="密碼工具 GUI", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(topbar, text="選檔、自動偵測、破解、集中輸出", style="Muted.TLabel").grid(row=1, column=0, sticky="w", pady=(4, 0))
+        ttk.Label(topbar, text="選擇目標，設定候選來源，開始自動破解", style="Muted.TLabel").grid(row=1, column=0, sticky="w", pady=(4, 0))
         ttk.Label(topbar, textvariable=self.status_var, style="Pill.TLabel").grid(row=0, column=1, rowspan=2, sticky="e", padx=(12, 14))
         top_actions = ttk.Frame(topbar, style="TopBarInner.TFrame")
         top_actions.grid(row=0, column=2, rowspan=2, sticky="e")
-        ttk.Button(top_actions, text="選擇檔案並開始", command=self.select_and_auto_start, style="Accent.TButton").pack(side="left", padx=(0, 8))
-        ttk.Button(top_actions, text="檢查環境", command=lambda: self.ensure_tools_async(force_download=True)).pack(side="left", padx=(0, 8))
+        ttk.Button(top_actions, text="檢查並下載工具", command=lambda: self.ensure_tools_async(force_download=True)).pack(side="left", padx=(0, 8))
         self.advanced_toggle = ttk.Button(top_actions, command=lambda: self.set_advanced_visible(not self._advanced_visible))
         self.advanced_toggle.pack(side="left", padx=(0, 8))
         ttk.Button(top_actions, text="停止", command=self.stop_current_work, style="Danger.TButton").pack(side="left")
@@ -1021,54 +1016,18 @@ class PasswordToolGUI(tk.Tk):
         body.columnconfigure(1, weight=1)
         body.rowconfigure(0, weight=1)
 
-        launcher = ttk.Frame(body, width=370, padding=16, style="Panel.TFrame")
-        launcher.grid(row=0, column=0, sticky="nsw", padx=(0, 14))
-        launcher.grid_propagate(False)
-        self._build_launcher_panel(launcher)
+        self.launcher = ttk.Frame(body, width=400, padding=(18, 12), style="Panel.TFrame")
+        self.launcher.grid(row=0, column=0, sticky="nsw", padx=(0, 14))
+        self.launcher.grid_propagate(False)
+        self._build_launcher_panel(self.launcher)
 
         workspace = ttk.Frame(body, style="Shell.TFrame")
         workspace.grid(row=0, column=1, sticky="nsew")
         workspace.columnconfigure(0, weight=1)
-        workspace.rowconfigure(1, weight=1)
-
-        jobs_panel = ttk.Frame(workspace, padding=12, style="Panel.TFrame")
-        jobs_panel.grid(row=0, column=0, sticky="ew", pady=(0, 14))
-        jobs_panel.columnconfigure(0, weight=1)
-        jobs_panel.rowconfigure(1, weight=1)
-        jobs_head = ttk.Frame(jobs_panel, style="Panel.TFrame")
-        jobs_head.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
-        jobs_head.columnconfigure(0, weight=1)
-        ttk.Label(jobs_head, text="工作佇列", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Button(jobs_head, text="清空記錄", command=self.clear_output_view).grid(row=0, column=1, padx=(8, 0))
-        ttk.Button(jobs_head, text="開啟輸出資料夾", command=self.open_output_folder).grid(row=0, column=2, padx=(8, 0))
-        self.jobs_tree = ttk.Treeview(
-            jobs_panel,
-            columns=("size", "progress", "status", "mode", "speed", "output"),
-            show="tree headings",
-            selectmode="browse",
-            height=4,
-        )
-        self.jobs_tree.heading("#0", text="名稱", anchor="w")
-        self.jobs_tree.heading("size", text="大小", anchor="e")
-        self.jobs_tree.heading("progress", text="進度", anchor="center")
-        self.jobs_tree.heading("status", text="狀態", anchor="center")
-        self.jobs_tree.heading("mode", text="模式", anchor="w")
-        self.jobs_tree.heading("speed", text="速度", anchor="e")
-        self.jobs_tree.heading("output", text="輸出", anchor="w")
-        self.jobs_tree.column("#0", width=320, minwidth=180, stretch=True)
-        self.jobs_tree.column("size", width=100, anchor="e", stretch=False)
-        self.jobs_tree.column("progress", width=100, anchor="center", stretch=False)
-        self.jobs_tree.column("status", width=120, anchor="center", stretch=False)
-        self.jobs_tree.column("mode", width=150, anchor="w", stretch=False)
-        self.jobs_tree.column("speed", width=130, anchor="e", stretch=False)
-        self.jobs_tree.column("output", width=320, anchor="w", stretch=True)
-        self.jobs_tree.grid(row=1, column=0, sticky="nsew")
-        jobs_scroll = ttk.Scrollbar(jobs_panel, orient="vertical", command=self.jobs_tree.yview)
-        jobs_scroll.grid(row=1, column=1, sticky="ns")
-        self.jobs_tree.configure(yscrollcommand=jobs_scroll.set)
+        workspace.rowconfigure(0, weight=1)
 
         details_panel = ttk.Frame(workspace, style="Shell.TFrame")
-        details_panel.grid(row=1, column=0, sticky="nsew")
+        details_panel.grid(row=0, column=0, sticky="nsew")
         details_panel.columnconfigure(0, weight=1)
         details_panel.rowconfigure(0, weight=1)
         self.notebook = ttk.Notebook(details_panel)
@@ -1081,7 +1040,7 @@ class PasswordToolGUI(tk.Tk):
         self.settings_tab = ttk.Frame(self.notebook, padding=12, style="App.TFrame")
         self.help_tab = ttk.Frame(self.notebook, padding=12, style="App.TFrame")
 
-        self.notebook.add(self.output_tab, text="狀態")
+        self.notebook.add(self.output_tab, text="執行狀態")
         self.notebook.add(self.extract_tab, text="雜湊轉換")
         self.notebook.add(self.hashcat_tab, text="Hashcat")
         self.notebook.add(self.john_tab, text="John")
@@ -1097,18 +1056,22 @@ class PasswordToolGUI(tk.Tk):
         self._advanced_tabs = (self.extract_tab, self.hashcat_tab, self.john_tab, self.settings_tab)
         self.set_advanced_visible(False)
 
-        bottom = ttk.Frame(root, padding=(2, 10, 2, 0), style="StatusBar.TFrame")
-        bottom.grid(row=2, column=0, sticky="ew")
-        ttk.Label(bottom, text="密碼工具GUI", style="StatusBar.TLabel").pack(side="left", padx=(0, 18))
-        ttk.Label(bottom, textvariable=self.status_var, style="StatusBar.TLabel").pack(side="left", fill="x", expand=True)
-        ttk.Label(bottom, textvariable=self.output_speed_var, style="StatusBar.TLabel").pack(side="right", padx=(18, 0))
-
     def set_advanced_visible(self, visible: bool) -> None:
         self._advanced_visible = visible
         state = "normal" if visible else "hidden"
         for tab in self._advanced_tabs:
             self.notebook.tab(tab, state=state)
+        if hasattr(self, "launcher"):
+            self.launcher.grid_remove() if visible else self.launcher.grid()
         self.advanced_toggle.configure(text="隱藏進階工具" if visible else "顯示進階工具")
+
+    def set_candidate_options_visible(self, visible: bool) -> None:
+        self._candidate_options_visible = visible
+        if visible:
+            self.candidate_options.grid()
+        else:
+            self.candidate_options.grid_remove()
+        self.candidate_options_toggle.configure(text="收起候選選項" if visible else "顯示候選選項")
 
     def _build_launcher_panel(self, parent: ttk.Frame) -> None:
         self.quick_input = tk.StringVar()
@@ -1122,58 +1085,56 @@ class PasswordToolGUI(tk.Tk):
         self.quick_status = tk.StringVar(value="有字典會優先拆字組合；沒有字典才使用遮罩破解。")
 
         parent.columnconfigure(0, weight=1)
-        ttk.Label(parent, text="快速破解", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(parent, text="支援壓縮包、Office、PDF 與常見雜湊檔。", style="Muted.TLabel", wraplength=280).grid(row=1, column=0, sticky="w", pady=(4, 18))
+        ttk.Label(parent, text="開始新工作", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(parent, text="支援壓縮包、Office、PDF 與常見雜湊檔。", style="Muted.TLabel", wraplength=330).grid(row=1, column=0, sticky="w", pady=(4, 12))
 
-        ttk.Label(parent, text="目標檔案", style="MetricName.TLabel").grid(row=2, column=0, sticky="w")
+        ttk.Label(parent, text="1  選擇目標檔案", style="PanelHeader.TLabel").grid(row=2, column=0, sticky="w")
         file_box = ttk.Frame(parent, style="Panel.TFrame")
-        file_box.grid(row=3, column=0, sticky="ew", pady=(6, 12))
+        file_box.grid(row=3, column=0, sticky="ew", pady=(8, 10))
         file_box.columnconfigure(0, weight=1)
         ttk.Entry(file_box, textvariable=self.quick_input).grid(row=0, column=0, sticky="ew")
         ttk.Button(file_box, text="瀏覽", command=self._browse_quick_file).grid(row=0, column=1, padx=(8, 0))
+        ttk.Button(parent, text="開始自動破解", command=self.auto_start_selected, style="Accent.TButton").grid(row=4, column=0, sticky="ew", pady=(0, 14))
 
-        ttk.Button(parent, text="選擇檔案並開始", command=self.select_and_auto_start, style="Accent.TButton").grid(row=4, column=0, sticky="ew", pady=(0, 10))
-        ttk.Button(parent, text="開始目前檔案", command=self.auto_start_selected).grid(row=5, column=0, sticky="ew", pady=(0, 18))
-
-        ttk.Label(parent, text="字典檔（可空白）", style="MetricName.TLabel").grid(row=6, column=0, sticky="w")
+        ttk.Label(parent, text="2  選擇字典（選填）", style="PanelHeader.TLabel").grid(row=5, column=0, sticky="w")
         dict_box = ttk.Frame(parent, style="Panel.TFrame")
-        dict_box.grid(row=7, column=0, sticky="ew", pady=(6, 12))
+        dict_box.grid(row=6, column=0, sticky="ew", pady=(8, 8))
         dict_box.columnconfigure(0, weight=1)
         ttk.Entry(dict_box, textvariable=self.quick_wordlist).grid(row=0, column=0, sticky="ew")
         ttk.Button(dict_box, text="瀏覽", command=lambda: self._browse_file(self.quick_wordlist)).grid(row=0, column=1, padx=(8, 0))
+        self.candidate_options_toggle = ttk.Button(parent, command=lambda: self.set_candidate_options_visible(not self._candidate_options_visible))
+        self.candidate_options_toggle.grid(row=7, column=0, sticky="ew", pady=(0, 10))
 
-        ttk.Checkbutton(parent, text="依序破解：字典 → 組合 → 硬破解", variable=self.quick_follow_order, style="Card.TCheckbutton").grid(row=8, column=0, sticky="w", pady=(0, 8))
-        ttk.Checkbutton(parent, text="導入字典時自動拆字與組合", variable=self.quick_expand_wordlist, style="Card.TCheckbutton").grid(row=9, column=0, sticky="w", pady=(0, 14))
-
-        ttk.Label(parent, text="組合密碼檔（可空白）", style="MetricName.TLabel").grid(row=10, column=0, sticky="w")
-        combo_box = ttk.Frame(parent, style="Panel.TFrame")
-        combo_box.grid(row=11, column=0, sticky="ew", pady=(6, 12))
+        self.candidate_options = ttk.Frame(parent, padding=12, style="Soft.TFrame")
+        self.candidate_options.grid(row=8, column=0, sticky="ew", pady=(0, 14))
+        self.candidate_options.columnconfigure(0, weight=1)
+        ttk.Label(self.candidate_options, text="組合密碼檔", style="Soft.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 4))
+        combo_box = ttk.Frame(self.candidate_options, style="Soft.TFrame")
+        combo_box.grid(row=1, column=0, sticky="ew", pady=(0, 8))
         combo_box.columnconfigure(0, weight=1)
         ttk.Entry(combo_box, textvariable=self.quick_combo_wordlist).grid(row=0, column=0, sticky="ew")
         ttk.Button(combo_box, text="瀏覽", command=lambda: self._browse_file(self.quick_combo_wordlist)).grid(row=0, column=1, padx=(8, 0))
+        ttk.Label(self.candidate_options, text="Key／提示詞", style="Soft.TLabel").grid(row=2, column=0, sticky="w", pady=(0, 4))
+        ttk.Entry(self.candidate_options, textvariable=self.quick_combo_key).grid(row=3, column=0, sticky="ew", pady=(0, 8))
+        ttk.Label(self.candidate_options, text="常見字典", style="Soft.TLabel").grid(row=4, column=0, sticky="w", pady=(0, 4))
+        ttk.Combobox(self.candidate_options, textvariable=self.common_wordlist, values=[item[0] for item in COMMON_WORDLISTS], state="readonly").grid(row=5, column=0, sticky="ew", pady=(0, 8))
+        ttk.Button(self.candidate_options, text="下載並使用常見字典", command=self.download_selected_wordlist).grid(row=6, column=0, sticky="ew")
+        self.set_candidate_options_visible(False)
 
-        ttk.Label(parent, text="組合 Key / 提示詞（可空白）", style="MetricName.TLabel").grid(row=12, column=0, sticky="w")
-        ttk.Entry(parent, textvariable=self.quick_combo_key).grid(row=13, column=0, sticky="ew", pady=(6, 12))
+        ttk.Label(parent, text="3  執行策略", style="PanelHeader.TLabel").grid(row=9, column=0, sticky="w")
+        ttk.Checkbutton(parent, text="依序嘗試：字典 → 組合 → 硬破解", variable=self.quick_follow_order, style="Card.TCheckbutton").grid(row=10, column=0, sticky="w", pady=(8, 6))
+        ttk.Checkbutton(parent, text="導入字典時自動拆字與組合", variable=self.quick_expand_wordlist, style="Card.TCheckbutton").grid(row=11, column=0, sticky="w", pady=(0, 6))
+        ttk.Checkbutton(parent, text="缺少 hashcat / John 時自動下載", variable=self.quick_auto_download, style="Card.TCheckbutton").grid(row=12, column=0, sticky="w", pady=(0, 10))
 
-        ttk.Label(parent, text="常見字典", style="MetricName.TLabel").grid(row=14, column=0, sticky="w")
-        ttk.Combobox(parent, textvariable=self.common_wordlist, values=[item[0] for item in COMMON_WORDLISTS], state="readonly").grid(row=15, column=0, sticky="ew", pady=(6, 8))
-        ttk.Button(parent, text="下載並導入字典", command=self.download_selected_wordlist).grid(row=16, column=0, sticky="ew", pady=(0, 14))
-
-        ttk.Checkbutton(parent, text="缺少 hashcat / John 時自動下載", variable=self.quick_auto_download, style="Card.TCheckbutton").grid(row=17, column=0, sticky="w", pady=(0, 10))
-        ttk.Button(parent, text="檢查/下載環境", command=lambda: self.ensure_tools_async(force_download=True)).grid(row=18, column=0, sticky="ew", pady=(0, 8))
-        ttk.Button(parent, text="停止目前工作", command=self.stop_current_work, style="Danger.TButton").grid(row=19, column=0, sticky="ew", pady=(0, 14))
-
-        status_box = ttk.Frame(parent, padding=12, style="Soft.TFrame")
-        status_box.grid(row=20, column=0, sticky="ew")
+        status_box = ttk.Frame(parent, padding=(10, 8), style="Soft.TFrame")
+        status_box.grid(row=13, column=0, sticky="ew")
         status_box.columnconfigure(0, weight=1)
-        ttk.Label(status_box, text="目前狀態", style="Soft.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(status_box, textvariable=self.quick_status, style="Soft.TLabel", wraplength=260).grid(row=1, column=0, sticky="w", pady=(6, 0))
+        ttk.Label(status_box, textvariable=self.quick_status, style="Soft.TLabel", wraplength=340).grid(row=0, column=0, sticky="w")
 
     def _browse_quick_file(self) -> None:
         path = filedialog.askopenfilename(filetypes=[("支援檔案", "*.zip *.zipx *.rar *.7z *.pdf *.doc *.docx *.xls *.xlsx *.ppt *.pptx *.odt *.ods *.odp *.hash *.txt"), ("所有檔案", "*.*")])
         if path:
             self.quick_input.set(path)
-            self.update_jobs_tree(name=Path(path).name, status="等待開始")
 
     def _row(self, parent: ttk.Frame, row: int, label: str, var: tk.StringVar, browse: str | None = None) -> ttk.Entry:
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(0, 8), pady=4)
@@ -1293,15 +1254,15 @@ class PasswordToolGUI(tk.Tk):
 
         options = ttk.Frame(frame)
         options.grid(row=9, column=1, sticky="ew", pady=4)
-        ttk.Checkbutton(options, text="--username", variable=self.hashcat_username).pack(side="left", padx=(0, 10))
-        ttk.Checkbutton(options, text="--remove", variable=self.hashcat_remove).pack(side="left", padx=(0, 10))
-        ttk.Checkbutton(options, text="-O 最佳化", variable=self.hashcat_optimized).pack(side="left", padx=(0, 10))
-        ttk.Label(options, text="工作量 -w").pack(side="left", padx=(8, 4))
-        ttk.Entry(options, textvariable=self.hashcat_workload, width=4).pack(side="left")
-        ttk.Label(options, text="裝置 -d").pack(side="left", padx=(12, 4))
-        ttk.Entry(options, textvariable=self.hashcat_device, width=12).pack(side="left")
-        ttk.Label(options, text="狀態秒數").pack(side="left", padx=(12, 4))
-        ttk.Entry(options, textvariable=self.hashcat_status_timer, width=5).pack(side="left")
+        ttk.Checkbutton(options, text="--username", variable=self.hashcat_username).grid(row=0, column=0, sticky="w", padx=(0, 10))
+        ttk.Checkbutton(options, text="--remove", variable=self.hashcat_remove).grid(row=0, column=1, sticky="w", padx=(0, 10))
+        ttk.Checkbutton(options, text="-O 最佳化", variable=self.hashcat_optimized).grid(row=0, column=2, sticky="w")
+        ttk.Label(options, text="工作量 -w").grid(row=1, column=0, sticky="w", pady=(8, 0))
+        ttk.Entry(options, textvariable=self.hashcat_workload, width=6).grid(row=2, column=0, sticky="w")
+        ttk.Label(options, text="裝置 -d").grid(row=1, column=1, sticky="w", pady=(8, 0))
+        ttk.Entry(options, textvariable=self.hashcat_device, width=12).grid(row=2, column=1, sticky="w")
+        ttk.Label(options, text="狀態秒數").grid(row=1, column=2, sticky="w", pady=(8, 0))
+        ttk.Entry(options, textvariable=self.hashcat_status_timer, width=8).grid(row=2, column=2, sticky="w")
 
         session_row = ttk.Frame(frame)
         session_row.grid(row=10, column=1, sticky="ew", pady=4)
@@ -1312,13 +1273,15 @@ class PasswordToolGUI(tk.Tk):
         ttk.Entry(frame, textvariable=self.hashcat_extra).grid(row=11, column=1, sticky="ew", pady=4)
 
         buttons = ttk.Frame(frame)
-        buttons.grid(row=12, column=1, columnspan=3, sticky="w", pady=(10, 8))
-        ttk.Button(buttons, text="開始 hashcat", command=self.start_hashcat).pack(side="left", padx=(0, 8))
-        ttk.Button(buttons, text="顯示已破解", command=self.hashcat_show).pack(side="left", padx=(0, 8))
-        ttk.Button(buttons, text="自訂執行", command=self.hashcat_custom).pack(side="left", padx=(0, 8))
-        ttk.Button(buttons, text="裝置資訊", command=self.hashcat_devices).pack(side="left", padx=(0, 8))
-        ttk.Button(buttons, text="基準測試", command=self.hashcat_benchmark).pack(side="left", padx=(0, 8))
-        ttk.Button(buttons, text="說明", command=self.hashcat_help).pack(side="left", padx=(0, 8))
+        buttons.grid(row=12, column=1, columnspan=3, sticky="ew", pady=(10, 8))
+        for idx, (label, command) in enumerate([
+            ("開始 hashcat", self.start_hashcat), ("顯示已破解", self.hashcat_show),
+            ("自訂執行", self.hashcat_custom), ("裝置資訊", self.hashcat_devices),
+            ("基準測試", self.hashcat_benchmark), ("說明", self.hashcat_help),
+        ]):
+            row, column = divmod(idx, 3)
+            buttons.columnconfigure(column, weight=1)
+            ttk.Button(buttons, text=label, command=command).grid(row=row, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0), pady=(0 if row == 0 else 8, 0))
 
         controls = ttk.Frame(frame)
         controls.grid(row=13, column=1, sticky="w", pady=4)
@@ -1370,14 +1333,16 @@ class PasswordToolGUI(tk.Tk):
         ttk.Entry(frame, textvariable=self.john_extra).grid(row=8, column=1, sticky="ew", pady=4)
 
         buttons = ttk.Frame(frame)
-        buttons.grid(row=9, column=1, columnspan=3, sticky="w", pady=(10, 8))
-        ttk.Button(buttons, text="開始 John", command=self.start_john).pack(side="left", padx=(0, 8))
-        ttk.Button(buttons, text="顯示已破解", command=self.john_show).pack(side="left", padx=(0, 8))
-        ttk.Button(buttons, text="自訂執行", command=self.john_custom).pack(side="left", padx=(0, 8))
-        ttk.Button(buttons, text="查狀態", command=self.john_status).pack(side="left", padx=(0, 8))
-        ttk.Button(buttons, text="恢復 Session", command=self.john_restore).pack(side="left", padx=(0, 8))
-        ttk.Button(buttons, text="測速", command=self.john_test).pack(side="left", padx=(0, 8))
-        ttk.Button(buttons, text="說明", command=self.john_help).pack(side="left")
+        buttons.grid(row=9, column=1, columnspan=3, sticky="ew", pady=(10, 8))
+        for idx, (label, command) in enumerate([
+            ("開始 John", self.start_john), ("顯示已破解", self.john_show),
+            ("自訂執行", self.john_custom), ("查狀態", self.john_status),
+            ("恢復 Session", self.john_restore), ("測速", self.john_test),
+            ("說明", self.john_help),
+        ]):
+            row, column = divmod(idx, 3)
+            buttons.columnconfigure(column, weight=1)
+            ttk.Button(buttons, text=label, command=command).grid(row=row, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0), pady=(0 if row == 0 else 8, 0))
 
         note = "John 也可直接在進階參數使用所有官方選項，例如 --incremental、--external、--subsets。"
         ttk.Label(frame, text=note, foreground="#555555").grid(row=10, column=1, sticky="w", pady=(8, 0))
@@ -1411,8 +1376,7 @@ class PasswordToolGUI(tk.Tk):
         actions = ttk.Frame(header, style="App.TFrame")
         actions.grid(row=0, column=1, rowspan=2, sticky="e")
         ttk.Button(actions, text="清空記錄", command=self.clear_output_view).pack(side="left", padx=(0, 10))
-        ttk.Button(actions, text="開啟輸出資料夾", command=self.open_output_folder).pack(side="left", padx=(0, 10))
-        ttk.Button(actions, text="停止目前工作", command=self.stop_current_work, style="Danger.TButton").pack(side="left")
+        ttk.Button(actions, text="開啟輸出資料夾", command=self.open_output_folder).pack(side="left")
 
         metrics = ttk.Frame(frame, style="App.TFrame")
         metrics.grid(row=1, column=0, sticky="ew", pady=(12, 10))
@@ -1423,32 +1387,30 @@ class PasswordToolGUI(tk.Tk):
             ("速度", self.output_speed_var),
             ("溫度", self.output_temp_var),
             ("已破解", self.output_recovered_var),
-            ("位數", self.output_length_var),
-            ("佇列", self.output_queue_var),
-            ("候選", self.output_candidate_var),
         ]
         for idx, (title, var) in enumerate(metric_items):
-            row, col = divmod(idx, 4)
-            card = ttk.Frame(metrics, padding=(12, 8), style="Card.TFrame")
+            row, col = divmod(idx, 3)
+            card = ttk.Frame(metrics, padding=(10, 6), style="Card.TFrame")
             card.grid(row=row, column=col, sticky="nsew", padx=(0 if col == 0 else 8, 0), pady=(0 if row == 0 else 8, 0))
             metrics.columnconfigure(col, weight=1)
             ttk.Label(card, text=title, style="MetricName.TLabel").pack(anchor="w")
             ttk.Label(card, textvariable=var, style="MetricValue.TLabel").pack(anchor="w", pady=(4, 0))
 
-        middle = ttk.Frame(frame, style="App.TFrame")
-        middle.grid(row=2, column=0, sticky="ew", pady=(0, 10))
-        middle.columnconfigure(0, weight=3)
-        middle.columnconfigure(1, weight=2)
-
-        progress_card = self._card(middle, 0, 0, padx=(0, 10))
+        progress_card = self._card(frame, 2, 0, pady=(0, 10))
         progress_card.columnconfigure(0, weight=1)
         ttk.Label(progress_card, text="破解概覽", style="MetricName.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(progress_card, textvariable=self.output_mode_var, style="Card.TLabel").grid(row=0, column=1, sticky="e")
         ttk.Progressbar(progress_card, variable=self.progress_value, maximum=100).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 8))
-        ttk.Label(progress_card, textvariable=self.output_overview_var, style="Card.TLabel", wraplength=980).grid(row=2, column=0, columnspan=2, sticky="w")
-        ttk.Label(progress_card, textvariable=self.output_file_var, style="Muted.TLabel", wraplength=980).grid(row=3, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        ttk.Label(progress_card, textvariable=self.output_overview_var, style="Card.TLabel", wraplength=560).grid(row=2, column=0, columnspan=2, sticky="w")
+        ttk.Label(progress_card, textvariable=self.output_file_var, style="Muted.TLabel", wraplength=560).grid(row=3, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
-        cracked_card = self._card(middle, 0, 1)
+        results = ttk.Frame(frame, style="App.TFrame")
+        results.grid(row=3, column=0, sticky="nsew")
+        results.rowconfigure(0, weight=1)
+        results.columnconfigure(0, weight=2)
+        results.columnconfigure(1, weight=3)
+
+        cracked_card = self._card(results, 0, 0, padx=(0, 10))
         cracked_card.rowconfigure(1, weight=1)
         cracked_card.columnconfigure(0, weight=1)
         ttk.Label(cracked_card, text="破解密碼", style="MetricName.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
@@ -1459,6 +1421,7 @@ class PasswordToolGUI(tk.Tk):
         self.cracked_text = scrolledtext.ScrolledText(
             cracked_card,
             wrap="word",
+            width=1,
             height=4,
             font=(MONO_FONT, 11),
             background="#F8FAFC",
@@ -1473,15 +1436,16 @@ class PasswordToolGUI(tk.Tk):
         self.cracked_text.insert("1.0", self.cracked_display_var.get())
         self.cracked_text.configure(state="disabled")
 
-        details = self._card(frame, 3, 0)
+        details = self._card(results, 0, 1)
         details.rowconfigure(1, weight=1)
         details.columnconfigure(0, weight=1)
         ttk.Label(details, text="詳細記錄", style="MetricName.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
         self.output = scrolledtext.ScrolledText(
             details,
             wrap="word",
+            width=1,
             height=7,
-            font=(MONO_FONT, 9),
+            font=(MONO_FONT, 10),
             background="#FFFFFF",
             foreground=TEXT,
             insertbackground=TEXT,
@@ -1503,10 +1467,6 @@ class PasswordToolGUI(tk.Tk):
             ("python_path", "python.exe"),
             ("perl_path", "perl.exe"),
             ("node_path", "node.exe"),
-            ("default_wordlist", "預設字典（可空白）"),
-            ("auto_follow_order", "依序破解 1/0"),
-            ("combo_wordlist", "組合密碼檔"),
-            ("combo_key", "組合 Key / 提示詞"),
             ("output_dir", "輸出目錄"),
         ]
         for idx, (key, label) in enumerate(rows, start=1):
@@ -1515,13 +1475,15 @@ class PasswordToolGUI(tk.Tk):
             browse = "dir" if key in {"john_run_dir", "output_dir"} else ("file" if key not in {"auto_follow_order", "combo_key"} else None)
             self._row(frame, idx, label, var, browse)
         buttons = ttk.Frame(frame)
-        buttons.grid(row=len(rows) + 1, column=1, sticky="w", pady=(12, 8))
-        ttk.Button(buttons, text="儲存設定", command=self.save_settings).pack(side="left", padx=(0, 8))
-        ttk.Button(buttons, text="自動偵測", command=self.detect_settings).pack(side="left", padx=(0, 8))
-        ttk.Button(buttons, text="健康檢查", command=self.health_check).pack(side="left", padx=(0, 8))
-        ttk.Button(buttons, text="開啟輸出資料夾", command=self.open_output_folder).pack(side="left", padx=(0, 8))
-        ttk.Button(buttons, text="開啟設定檔", command=self.open_config_file).pack(side="left", padx=(0, 8))
-        ttk.Button(buttons, text="匯入設定檔", command=self.import_config_file).pack(side="left")
+        buttons.grid(row=len(rows) + 1, column=1, sticky="ew", pady=(12, 8))
+        for idx, (label, command) in enumerate([
+            ("儲存設定", self.save_settings), ("自動偵測", self.detect_settings),
+            ("健康檢查", self.health_check), ("開啟輸出資料夾", self.open_output_folder),
+            ("開啟設定檔", self.open_config_file), ("匯入設定檔", self.import_config_file),
+        ]):
+            row, column = divmod(idx, 3)
+            buttons.columnconfigure(column, weight=1)
+            ttk.Button(buttons, text=label, command=command).grid(row=row, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0), pady=(0 if row == 0 else 8, 0))
         ttk.Label(frame, text=f"目前設定檔：{CONFIG_PATH}", foreground="#555555", wraplength=860).grid(row=len(rows) + 2, column=1, columnspan=2, sticky="w", pady=(8, 0))
         tip = "Perl 未安裝時，7z2john.pl、pdf2john.pl 等 .pl 轉換器會無法使用；安裝後在此指定路徑即可。"
         ttk.Label(frame, text=tip, foreground="#555555", wraplength=860).grid(row=len(rows) + 3, column=1, columnspan=2, sticky="w", pady=(8, 0))
@@ -1530,15 +1492,15 @@ class PasswordToolGUI(tk.Tk):
         frame = self.help_tab
         frame.rowconfigure(0, weight=1)
         frame.columnconfigure(0, weight=1)
-        text = scrolledtext.ScrolledText(frame, wrap="word", font=(UI_FONT, 10))
+        text = scrolledtext.ScrolledText(frame, wrap="word", font=(UI_FONT, 11))
         text.grid(row=0, column=0, sticky="nsew")
         text.insert(
             "1.0",
             (
                 "使用流程\n"
-                "1. 在「快速破解」選擇 ZIP/RAR/7Z/Office/PDF 或雜湊檔。\n"
+                "1. 在「開始新工作」選擇 ZIP/RAR/7Z/Office/PDF 或雜湊檔。\n"
                 "2. 工具會自動偵測環境、必要時下載 hashcat / John，並自動開始。\n"
-                "3. 密碼、雜湊與記錄會集中在 exe 旁的「密碼工具GUI_輸出」資料夾。\n\n"
+                "3. 密碼、雜湊與記錄會集中在設定的輸出資料夾。\n\n"
                 "完整功能\n"
                 "Hashcat 與 John 的 GUI 欄位只放常用項目；任何未列出的官方選項請填在「進階參數」。\n"
                 "例如 hashcat 可填 --increment --hwmon-temp-abort=90；John 可填 --external、--subsets、--loopback。\n\n"
@@ -1623,11 +1585,12 @@ class PasswordToolGUI(tk.Tk):
 
     def set_status(self, text: str) -> None:
         self.status_var.set(text)
-        self.update_jobs_tree(status=text)
         self.refresh_output_overview()
 
     def clear_output_view(self) -> None:
         self.output.delete("1.0", "end")
+        self.status_var.set("就緒")
+        self.quick_status.set("有字典會優先拆字組合；沒有字典才使用遮罩破解。")
         self.output_job_var.set("尚未開始")
         self.output_status_var.set("就緒")
         self.output_progress_var.set("0%")
@@ -1644,9 +1607,6 @@ class PasswordToolGUI(tk.Tk):
         self.progress_value.set(0)
         self.last_cracked_file = None
         self.set_cracked_passwords([])
-        if hasattr(self, "jobs_tree"):
-            for item in self.jobs_tree.get_children():
-                self.jobs_tree.delete(item)
 
     def set_cracked_passwords(self, passwords: list[str], cracked_file: Path | None = None) -> None:
         if cracked_file:
@@ -1703,52 +1663,6 @@ class PasswordToolGUI(tk.Tk):
     def update_elapsed(self) -> None:
         if hasattr(self, "output_elapsed_var"):
             self.output_elapsed_var.set(format_elapsed(self.runner.elapsed_seconds()))
-
-    def format_file_size(self, path: Path) -> str:
-        try:
-            size = path.stat().st_size
-        except OSError:
-            return "-"
-        units = ("B", "KiB", "MiB", "GiB", "TiB")
-        value = float(size)
-        for unit in units:
-            if value < 1024 or unit == units[-1]:
-                return f"{value:.1f} {unit}" if unit != "B" else f"{int(value)} B"
-            value /= 1024
-        return "-"
-
-    def update_jobs_tree(self, name: str | None = None, status: str | None = None) -> None:
-        if not hasattr(self, "jobs_tree"):
-            return
-        src_text = self.quick_input.get().strip() if hasattr(self, "quick_input") else ""
-        src = Path(src_text) if src_text else None
-        job_name = name or (src.name if src else "")
-        if not job_name and hasattr(self, "output_job_var"):
-            job_name = self.output_job_var.get()
-        if not job_name or job_name == "尚未開始":
-            return
-        size = self.format_file_size(src) if src and src.exists() else "-"
-        progress = self.output_progress_var.get() if hasattr(self, "output_progress_var") else "0%"
-        job_status = status or (self.output_status_var.get() if hasattr(self, "output_status_var") else "就緒")
-        mode = self.output_mode_var.get() if hasattr(self, "output_mode_var") else "-"
-        speed = self.output_speed_var.get() if hasattr(self, "output_speed_var") else "-"
-        output = self.output_file_var.get() if hasattr(self, "output_file_var") else ""
-        if output == "尚未產生輸出":
-            output = ""
-        values = (
-            size,
-            self.short_metric(progress, 18),
-            self.short_metric(job_status, 18),
-            self.short_metric(mode, 28),
-            self.short_metric(speed, 24),
-            self.short_metric(output, 72),
-        )
-        if self.jobs_tree.exists("active"):
-            self.jobs_tree.item("active", text=job_name, values=values)
-        else:
-            self.jobs_tree.insert("", "end", iid="active", text=job_name, values=values)
-            self.jobs_tree.selection_set("active")
-            self.jobs_tree.focus("active")
 
     def update_output_dashboard(self, text: str) -> None:
         if not hasattr(self, "output_status_var"):
@@ -1825,7 +1739,6 @@ class PasswordToolGUI(tk.Tk):
             if "已輸出密碼：" in line or "_cracked.txt" in line:
                 self.output_file_var.set(line)
         self.refresh_output_overview()
-        self.update_jobs_tree()
 
     def short_metric(self, value: str, limit: int) -> str:
         return value if len(value) <= limit else value[: max(0, limit - 1)] + "…"
@@ -2015,12 +1928,6 @@ class PasswordToolGUI(tk.Tk):
         self.hashcat_hash_file.set(path)
         self.john_hash_file.set(path)
 
-    def select_and_auto_start(self) -> None:
-        path = filedialog.askopenfilename(filetypes=[("支援檔案", "*.zip *.zipx *.rar *.7z *.pdf *.doc *.docx *.xls *.xlsx *.ppt *.pptx *.odt *.ods *.odp *.hash *.txt"), ("所有檔案", "*.*")])
-        if path:
-            self.quick_input.set(path)
-            self.auto_start_selected()
-
     def auto_start_selected(self) -> None:
         src = Path(self.quick_input.get().strip())
         if not src.exists():
@@ -2057,7 +1964,6 @@ class PasswordToolGUI(tk.Tk):
         self.refresh_output_overview()
         self.progress_value.set(0)
         self.set_cracked_passwords([])
-        self.update_jobs_tree(name=src.name, status="準備中")
         wordlist = self.quick_wordlist.get().strip()
         settings = {
             "auto_download": bool(self.quick_auto_download.get()),
@@ -2426,7 +2332,6 @@ class PasswordToolGUI(tk.Tk):
         self.output_mode_var.set(mode_label or engine)
         self.output_file_var.set(str(cracked))
         self.refresh_output_overview()
-        self.update_jobs_tree(status="執行中")
         plan = self.describe_auto_attack_plan(
             name, cmd, cwd, session_log, engine, hash_file, mode_label, cracked, candidate_count
         )
