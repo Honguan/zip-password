@@ -107,6 +107,10 @@ AUTO_MASKS = [
 
 WORDLIST_JOINERS = ["", " ", ".", "-", "_", "/", "@", "\t"]
 WORDLIST_EXPANSION_LIMIT = 500_000
+UI_QUEUE_LIMIT = 2_000
+UI_QUEUE_ITEMS_PER_TICK = 100
+UI_LOG_MAX_LINES = 5_000
+SESSION_LOG_BUFFER_SIZE = 64 * 1024
 HASHCAT_DEFAULT_MASK = "?a?a?a?a?a?a"
 JOHN_DEFAULT_MASK = "?a?a?a?a?a?a"
 
@@ -750,6 +754,8 @@ class CommandRunner:
         self.started_at: float | None = None
         self.last_elapsed: float | None = None
         self.cancel_requested = False
+        self.session_log_buffer: list[str] = []
+        self.session_log_buffer_size = 0
 
     def running(self) -> bool:
         with self.lock:
@@ -782,6 +788,8 @@ class CommandRunner:
             self.started_at = time.monotonic()
             self.last_elapsed = None
             self.cancel_requested = False
+            self.session_log_buffer.clear()
+            self.session_log_buffer_size = 0
         start_text = (
             f"\n[{time.strftime('%H:%M:%S')}] 啟動 {name}\n"
             f"工作目錄：{cwd or Path.cwd()}\n"
@@ -843,14 +851,21 @@ class CommandRunner:
                 return self.last_elapsed
             return time.monotonic() - self.started_at
 
-    def _append_session_log(self, text: str) -> None:
+    def _append_session_log(self, text: str, flush: bool = False) -> None:
         path = self.log_path
         if not path:
             return
+        self.session_log_buffer.append(text)
+        self.session_log_buffer_size += len(text.encode("utf-8"))
+        if not flush and self.session_log_buffer_size < SESSION_LOG_BUFFER_SIZE:
+            return
+        buffered = "".join(self.session_log_buffer)
+        self.session_log_buffer.clear()
+        self.session_log_buffer_size = 0
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             with path.open("a", encoding="utf-8", newline="\n") as fh:
-                fh.write(text)
+                fh.write(buffered)
         except Exception:
             pass
 
@@ -866,7 +881,7 @@ class CommandRunner:
         code = proc.wait()
         end_text = f"\n[{time.strftime('%H:%M:%S')}] {name} 結束，代碼 {code}\n"
         self.app.enqueue_log(end_text)
-        self._append_session_log(end_text)
+        self._append_session_log(end_text, flush=True)
         finish_callback = None
         with self.lock:
             if self.process is proc:
@@ -936,8 +951,8 @@ class PasswordToolGUI(tk.Tk):
             save_config(self.config_data)
         except Exception:
             pass
-        self.log_queue: queue.Queue[str] = queue.Queue()
-        self.status_queue: queue.Queue[str] = queue.Queue()
+        self.log_queue: queue.Queue[str] = queue.Queue(maxsize=UI_QUEUE_LIMIT)
+        self.status_queue: queue.Queue[str] = queue.Queue(maxsize=UI_QUEUE_LIMIT)
         self.ui_queue: queue.Queue[object] = queue.Queue()
         self._tools_setup_lock = threading.Lock()
         self.runner = CommandRunner(self)
@@ -1628,27 +1643,41 @@ class PasswordToolGUI(tk.Tk):
                 self.extract_converter.set("自動偵測")
 
     def enqueue_log(self, text: str) -> None:
-        self.log_queue.put(text)
+        self._enqueue_bounded(self.log_queue, text)
 
     def enqueue_status(self, text: str) -> None:
-        self.status_queue.put(text)
+        self._enqueue_bounded(self.status_queue, text)
+
+    @staticmethod
+    def _enqueue_bounded(target: queue.Queue, item) -> None:
+        try:
+            target.put_nowait(item)
+        except queue.Full:
+            try:
+                target.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                target.put_nowait(item)
+            except queue.Full:
+                pass
 
     def enqueue_ui(self, callback) -> None:
         self.ui_queue.put(callback)
 
     def _drain_queues(self) -> None:
         try:
-            while True:
+            for _ in range(UI_QUEUE_ITEMS_PER_TICK):
                 self.log(self.log_queue.get_nowait())
         except queue.Empty:
             pass
         try:
-            while True:
+            for _ in range(UI_QUEUE_ITEMS_PER_TICK):
                 self.set_status(self.status_queue.get_nowait())
         except queue.Empty:
             pass
         try:
-            while True:
+            for _ in range(UI_QUEUE_ITEMS_PER_TICK):
                 self.ui_queue.get_nowait()()
         except queue.Empty:
             pass
@@ -1658,6 +1687,9 @@ class PasswordToolGUI(tk.Tk):
     def log(self, text: str) -> None:
         self.update_output_dashboard(text)
         self.output.insert("end", text)
+        lines = int(self.output.index("end-1c").split(".", 1)[0])
+        if lines > UI_LOG_MAX_LINES:
+            self.output.delete("1.0", f"{lines - UI_LOG_MAX_LINES + 1}.0")
         self.output.see("end")
 
     def set_status(self, text: str) -> None:
