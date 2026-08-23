@@ -58,7 +58,22 @@ class PasswordLogicTests(TestCase):
         for hash_text, expected in modes.items():
             with self.subTest(hash_text=hash_text):
                 self.assertEqual(logic.detect_hashcat_mode(hash_text), expected)
-        self.assertEqual(logic.extract_passwords_from_show("archive.zip:secret\n0 passwords cracked\n"), ["secret"])
+        self.assertEqual(
+            logic.extract_passwords_from_show("hash:secret\n0 passwords cracked\n", "hashcat"),
+            ["secret"],
+        )
+
+    def test_john_password_parsing_preserves_password_fields(self):
+        shown = (
+            "alice:p@ ss:wo$rd:1000:1000:Alice:/home/alice:/bin/bash\n"
+            "archive.zip:plain:with colon\n"
+            "2 password hashes cracked, 0 left\n"
+        )
+
+        self.assertEqual(
+            logic.extract_passwords_from_show(shown, "john"),
+            ["p@ ss:wo$rd", "plain:with colon"],
+        )
 
     def test_hashcat_zip_output_discards_john_metadata_only(self):
         text = (
