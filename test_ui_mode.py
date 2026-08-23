@@ -56,7 +56,7 @@ class UiModeTests(unittest.TestCase):
 
         self.assertEqual(gui.notebook.states, {tab: "normal" for tab in gui._advanced_tabs})
         self.assertEqual(gui.advanced_toggle.text, "隱藏進階工具")
-        self.assertFalse(gui.launcher.visible)
+        self.assertTrue(gui.launcher.visible)
 
     def test_optional_candidate_fields_can_be_collapsed(self):
         gui = object.__new__(APP.PasswordToolGUI)
@@ -85,6 +85,18 @@ class UiModeTests(unittest.TestCase):
                 gui.launcher.winfo_height(),
             )
             self.assertTrue(all(child.winfo_ismapped() for child in gui.output_tab.winfo_children()))
+
+            gui.set_advanced_visible(True)
+            gui.update()
+            self.assertTrue(gui.launcher.winfo_ismapped())
+            for tab in gui._advanced_tabs:
+                gui.notebook.select(tab)
+                gui.update()
+                self.assertLessEqual(tab.winfo_reqwidth(), tab.winfo_width())
+
+            gui.set_advanced_visible(False)
+            gui.update()
+            self.assertTrue(gui.launcher.winfo_ismapped())
         finally:
             gui.destroy()
 
