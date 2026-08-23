@@ -1,7 +1,7 @@
 import importlib.machinery
 from pathlib import Path
 from unittest import TestCase, main
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 
 APP = importlib.machinery.SourceFileLoader(
@@ -19,7 +19,6 @@ class WordlistFlowTests(TestCase):
             side_effect=lambda source, _dest, expand: "expanded.txt" if expand else source
         )
         gui.prepare_combo_wordlist = Mock(return_value="")
-        gui.build_auto_hashcat_command = Mock(return_value=["hashcat.exe"])
         gui.enqueue_status = Mock()
         gui.conversion_cancel = APP.threading.Event()
         return gui
@@ -34,28 +33,34 @@ class WordlistFlowTests(TestCase):
         gui = self.make_gui()
         settings = {"expand_wordlist": True, "hashcat_mask": "", "john_mask": ""}
 
-        stages = gui.build_auto_attack_stages(
-            Path("input.zip"), self.paths(), "hashcat", Path("hash.txt"), "0 - MD5", "", settings
-        )
+        with patch.object(APP, "build_auto_hashcat_command", return_value=["hashcat.exe"]) as builder, patch.object(
+            Path, "write_text"
+        ):
+            stages = gui.build_auto_attack_stages(
+                Path("input.zip"), self.paths(), "hashcat", Path("hash.txt"), "0 - MD5", "", settings
+            )
 
         gui.prepare_auto_wordlist.assert_called_once_with(
             "merged.txt", Path("expanded_wordlist.txt"), True
         )
         self.assertEqual(stages[0]["stage_name"], "階段1 字典庫破解")
-        self.assertIn("expanded.txt", gui.build_auto_hashcat_command.call_args_list[0].args)
+        self.assertIn("expanded.txt", builder.call_args_list[0].args)
 
     def test_default_order_keeps_the_merged_dictionary_when_disabled(self):
         gui = self.make_gui()
         settings = {"expand_wordlist": False, "hashcat_mask": "", "john_mask": ""}
 
-        gui.build_auto_attack_stages(
-            Path("input.zip"), self.paths(), "hashcat", Path("hash.txt"), "0 - MD5", "", settings
-        )
+        with patch.object(APP, "build_auto_hashcat_command", return_value=["hashcat.exe"]) as builder, patch.object(
+            Path, "write_text"
+        ):
+            gui.build_auto_attack_stages(
+                Path("input.zip"), self.paths(), "hashcat", Path("hash.txt"), "0 - MD5", "", settings
+            )
 
         gui.prepare_auto_wordlist.assert_called_once_with(
             "merged.txt", Path("expanded_wordlist.txt"), False
         )
-        self.assertIn("merged.txt", gui.build_auto_hashcat_command.call_args_list[0].args)
+        self.assertIn("merged.txt", builder.call_args_list[0].args)
 
 if __name__ == "__main__":
     main()
