@@ -15,7 +15,6 @@ import threading
 import time
 import ctypes
 import hashlib
-import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
@@ -54,7 +53,6 @@ LEGACY_CONFIG_NAMES = [
     "settings.json",
     "config.json",
 ]
-DEFAULT_OUTPUT_DIR = APP_DIR / "gui_output"
 RESULTS_DIR = APP_DIR / "密碼工具GUI_輸出"
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 UI_FONT = "Iansui"
@@ -68,10 +66,7 @@ MUTED = "#667085"
 BORDER = "#D7DEE8"
 ACCENT = "#2563EB"
 ACCENT_DARK = "#1E40AF"
-SUCCESS = "#059669"
-WARNING = "#D97706"
 DANGER = "#DC2626"
-DARK_PANEL = "#101828"
 HASHCAT_DOWNLOAD_PAGE = "https://hashcat.net/hashcat/"
 JOHN_RELEASE_API = "https://api.github.com/repos/openwall/john-packages/releases/latest"
 JOHN_RELEASE_PAGE = "https://github.com/openwall/john-packages/releases/latest"
@@ -1196,54 +1191,6 @@ class PasswordToolGUI(tk.Tk):
         card = ttk.Frame(parent, padding=16, style="Card.TFrame")
         card.grid(row=row, column=column, sticky=grid.pop("sticky", "nsew"), padx=grid.pop("padx", 0), pady=grid.pop("pady", 0), **grid)
         return card
-
-    def _metric_card(self, parent: ttk.Widget, column: int, title: str, var: tk.StringVar) -> ttk.Frame:
-        card = ttk.Frame(parent, padding=(14, 12), style="Card.TFrame")
-        card.grid(row=0, column=column, sticky="nsew", padx=(0 if column == 0 else 10, 0))
-        parent.columnconfigure(column, weight=1)
-        ttk.Label(card, text=title, style="MetricName.TLabel").pack(anchor="w")
-        ttk.Label(card, textvariable=var, style="MetricValue.TLabel").pack(anchor="w", pady=(6, 0))
-        return card
-
-    def _build_quick_tab(self) -> None:
-        self.quick_input = tk.StringVar()
-        self.quick_wordlist = tk.StringVar()
-        self.common_wordlist = tk.StringVar(value=COMMON_WORDLISTS[1][0])
-        self.quick_auto_download = tk.BooleanVar(value=True)
-        self.quick_status = tk.StringVar(value="選擇壓縮包、Office、PDF、RAR、7Z 或雜湊檔後即可開始。")
-
-        frame = self.quick_tab
-        frame.columnconfigure(0, weight=1)
-        frame.rowconfigure(1, weight=1)
-        ttk.Label(frame, text="傻瓜式自動破解", style="Title.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(frame, text="選檔後自動偵測格式、準備工具、轉換雜湊並開始破解。", style="Status.TLabel").grid(row=0, column=0, sticky="w", pady=(34, 0))
-
-        card = self._card(frame, 1, 0, pady=(22, 0))
-        card.columnconfigure(1, weight=1)
-        ttk.Label(card, text="目標檔案", style="Card.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
-        ttk.Entry(card, textvariable=self.quick_input).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 12))
-        ttk.Button(card, text="選擇檔案並開始", command=self.select_and_auto_start, style="Accent.TButton").grid(row=1, column=2, padx=(12, 0), pady=(0, 12))
-
-        ttk.Label(card, text="字典檔（可空白）", style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=(4, 8))
-        ttk.Entry(card, textvariable=self.quick_wordlist).grid(row=3, column=0, columnspan=2, sticky="ew")
-        ttk.Button(card, text="瀏覽", command=lambda: self._browse_file(self.quick_wordlist)).grid(row=3, column=2, padx=(12, 0))
-
-        ttk.Label(card, text="常見字典下載", style="Card.TLabel").grid(row=4, column=0, sticky="w", pady=(14, 8))
-        ttk.Combobox(card, textvariable=self.common_wordlist, values=[item[0] for item in COMMON_WORDLISTS], state="readonly").grid(row=5, column=0, columnspan=2, sticky="ew")
-        ttk.Button(card, text="下載並導入", command=self.download_selected_wordlist).grid(row=5, column=2, padx=(12, 0))
-
-        ttk.Checkbutton(card, text="缺少 hashcat / John 時自動下載", variable=self.quick_auto_download, style="Card.TCheckbutton").grid(row=6, column=0, columnspan=3, sticky="w", pady=(14, 4))
-
-        buttons = ttk.Frame(card, style="Card.TFrame")
-        buttons.grid(row=7, column=0, columnspan=3, sticky="w", pady=(14, 0))
-        ttk.Button(buttons, text="開始自動破解", command=self.auto_start_selected, style="Accent.TButton").pack(side="left", padx=(0, 10))
-        ttk.Button(buttons, text="檢查/下載環境", command=lambda: self.ensure_tools_async(force_download=True)).pack(side="left", padx=(0, 10))
-        ttk.Button(buttons, text="停止目前工作", command=self.stop_current_work, style="Danger.TButton").pack(side="left")
-
-        status_card = self._card(frame, 2, 0, pady=(14, 0))
-        ttk.Label(status_card, text="目前狀態", style="MetricName.TLabel").pack(anchor="w")
-        ttk.Label(status_card, textvariable=self.quick_status, style="Card.TLabel", wraplength=920).pack(anchor="w", pady=(6, 0))
-        ttk.Label(status_card, text="輸出會集中在 exe 旁的「密碼工具GUI_輸出」資料夾。沒有指定字典時會使用短遮罩優先策略。", style="Muted.TLabel", wraplength=920).pack(anchor="w", pady=(8, 0))
 
     def _build_extract_tab(self) -> None:
         self.extract_input = tk.StringVar()
