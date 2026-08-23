@@ -42,7 +42,12 @@ class ReleaseBuildTests(unittest.TestCase):
         script_path = ROOT / "release.ps1"
         self.assertTrue(script_path.read_bytes().startswith(b"\xef\xbb\xbf"))
         script = script_path.read_text(encoding="utf-8-sig")
-        for item in ("param", "^v\\d+\\.\\d+\\.\\d+$", "-m unittest", "40MB", "Get-FileHash", "Compress-Archive"):
+        for item in (
+            "param", "^v\\d+\\.\\d+\\.\\d+$", 'pyinstaller==$pyInstallerVersion',
+            '$pyInstallerVersion = "6.14.1"', 'pyinstaller-hooks-contrib==$pyInstallerHooksVersion',
+            '$pyInstallerHooksVersion = "2026.6"', "-m unittest", "40MB", "archive_viewer",
+            "0x4D", "0x5A", "Get-FileHash", "Compress-Archive", "Expand-Archive", "Compare-Object",
+        ):
             self.assertIn(item, script)
 
 
