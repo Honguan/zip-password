@@ -19,6 +19,20 @@ class ReleaseBuildTests(unittest.TestCase):
         self.assertIn("release.ps1", workflow)
         self.assertIn("softprops/action-gh-release@v2", workflow)
 
+    def test_ci_workflow_gates_issue_pull_requests_and_tests_main(self):
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        for item in (
+            "pull_request:",
+            "push:",
+            "issue/([0-9]+)",
+            "Refs",
+            "Fixes|Closes|Resolves",
+            "windows-latest",
+            "python -m unittest",
+            "python -m py_compile PasswordToolsGUI.pyw",
+        ):
+            self.assertIn(item, workflow)
+
     def test_release_checklist_covers_required_manual_flows(self):
         checklist = (ROOT / "RELEASE_CHECKLIST.md").read_text(encoding="utf-8")
         for item in ("啟動", "自動安裝", "執行", "停止", "輸出"):
