@@ -38,6 +38,24 @@ class CommandRunnerTests(TestCase):
         process.terminate.assert_called_once_with()
         app.log.assert_called_once_with("\n[控制] 已要求停止目前工作\n")
 
+    def test_reader_passes_cancellation_to_finish_callback(self):
+        app = Mock()
+        app.enqueue_ui.side_effect = lambda callback: callback()
+        runner = APP.CommandRunner(app)
+        process = Mock()
+        process.stdout.readline.return_value = b""
+        process.wait.return_value = -15
+        callback = Mock()
+        runner.process = process
+        runner.on_finish = callback
+        runner.cancel_requested = True
+        runner.job_lock.acquire()
+
+        runner._reader(process, "hashcat")
+
+        callback.assert_called_once_with(-15, True)
+        app.enqueue_status.assert_called_once_with("hashcat 已停止")
+
     def test_capture_returns_converter_output_and_releases_the_job(self):
         app = Mock()
         runner = APP.CommandRunner(app)

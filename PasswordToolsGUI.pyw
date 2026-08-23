@@ -864,7 +864,7 @@ class CommandRunner:
         self.job_lock.release()
         self.app.enqueue_status(f"{name} {'已停止' if cancelled else '已結束'}")
         if finish_callback:
-            self.app.enqueue_ui(lambda: finish_callback(code))
+            self.app.enqueue_ui(lambda: finish_callback(code, cancelled))
 
     def send_key(self, key: str) -> None:
         with self.lock:
@@ -2366,7 +2366,13 @@ class PasswordToolGUI(tk.Tk):
             return
         stage = stages[index]
 
-        def continue_stages(_code: int) -> None:
+        def continue_stages(code: int, cancelled: bool) -> None:
+            if cancelled:
+                self.quick_status.set("自動流程已停止。")
+                return
+            if code != 0:
+                self.quick_status.set(f"自動流程失敗（結束代碼 {code}）。")
+                return
             cracked = Path(stage["cracked"])
             if cracked.exists() and cracked.read_text(encoding="utf-8", errors="replace").strip():
                 self.quick_status.set("已找到密碼，停止後續破解階段。")
@@ -2408,10 +2414,11 @@ class PasswordToolGUI(tk.Tk):
                 fh.write(plan + "\n")
         except Exception:
             pass
-        def finish(code: int) -> None:
-            self.finalize_auto_cracked(engine, hash_file, mode_label, cracked)
+        def finish(code: int, cancelled: bool) -> None:
+            if not cancelled:
+                self.finalize_auto_cracked(engine, hash_file, mode_label, cracked)
             if on_finish:
-                on_finish(code)
+                on_finish(code, cancelled)
 
         self.runner.start(
             name,
