@@ -144,6 +144,24 @@ class CommandRunnerTests(TestCase):
         gui.extract_thread.join.assert_called_once_with()
         gui.destroy.assert_called_once_with()
 
+    def test_close_cancels_and_waits_for_auto_workflow(self):
+        gui = object.__new__(APP.PasswordToolGUI)
+        gui.runner = Mock()
+        gui.runner.running.return_value = False
+        gui.extract_thread = None
+        gui.auto_thread = Mock()
+        gui.auto_thread.is_alive.return_value = True
+        gui.conversion_cancel = APP.threading.Event()
+        gui.log = Mock()
+        gui.destroy = Mock()
+
+        with patch.object(APP.messagebox, "askyesno", return_value=True):
+            gui._on_close()
+
+        self.assertTrue(gui.conversion_cancel.is_set())
+        gui.auto_thread.join.assert_called_once_with()
+        gui.destroy.assert_called_once_with()
+
     def test_extract_worker_uses_snapshot_and_queues_ui_update(self):
         with TemporaryDirectory() as temp:
             root = Path(temp)

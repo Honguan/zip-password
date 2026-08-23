@@ -688,16 +688,22 @@ def summarize_masks(masks: list[str]) -> str:
     return f"{unique[0]}-{unique[-1]} 位 ({len(unique)} 種長度)"
 
 
-def count_text_lines(path: Path, limit: int = 5_000_000) -> str:
+def count_text_lines(path: Path, limit: int = 5_000_000, cancel: threading.Event | None = None) -> str:
     try:
         count = 0
+        if cancel and cancel.is_set():
+            raise InterruptedError("字典候選統計已停止")
         with path.open("rb") as fh:
             for raw in fh:
+                if cancel and cancel.is_set():
+                    raise InterruptedError("字典候選統計已停止")
                 if raw.strip():
                     count += 1
                 if count >= limit:
                     return f"至少 {limit:,} 筆"
         return f"{count:,} 筆"
+    except InterruptedError:
+        raise
     except Exception:
         return "無法統計"
 
@@ -2199,6 +2205,11 @@ class PasswordToolGUI(tk.Tk):
         stages: list[dict[str, object]] = []
 
         def add_stage(stage_name: str, wordlist: str, suffix: str) -> None:
+            candidate_count = "-"
+            if wordlist:
+                self.enqueue_status("正在統計字典候選")
+                candidate_count = count_text_lines(Path(wordlist), cancel=self.conversion_cancel)
+                self.enqueue_status(f"字典候選統計完成：{candidate_count}")
             if engine == "hashcat":
                 cmd = self.build_auto_hashcat_command(
                     paths["hashcat_hash"], mode_label, wordlist, paths["cracked"], paths["mask"],
@@ -2219,6 +2230,7 @@ class PasswordToolGUI(tk.Tk):
                     "mode_label": mode_label,
                     "cracked": paths["cracked"],
                     "stage_name": stage_name,
+                    "candidate_count": candidate_count,
                 }
             )
 
@@ -2378,11 +2390,13 @@ class PasswordToolGUI(tk.Tk):
         cmd.append(str(hash_file))
         return cmd
 
-    def describe_auto_attack_plan(self, name: str, cmd: list[str], cwd: str | None, session_log: Path, engine: str, hash_file: Path, mode_label: str, cracked: Path) -> str:
+    def describe_auto_attack_plan(
+        self, name: str, cmd: list[str], cwd: str | None, session_log: Path, engine: str,
+        hash_file: Path, mode_label: str, cracked: Path, candidate_count: str = "-",
+    ) -> str:
         attack_mode = "-"
         wordlist = ""
         mask_text = ""
-        candidate_count = "-"
         length_summary = "-"
 
         if engine == "hashcat":
@@ -2408,8 +2422,6 @@ class PasswordToolGUI(tk.Tk):
                     mask_text = arg.split("=", 1)[1]
 
         if wordlist:
-            wordlist_path = Path(wordlist)
-            candidate_count = count_text_lines(wordlist_path)
             length_summary = "依字典候選"
             self.output_candidate_var.set(candidate_count)
         elif mask_text:
@@ -2469,10 +2481,14 @@ class PasswordToolGUI(tk.Tk):
             Path(stage["hash_file"]),
             str(stage["mode_label"]),
             Path(stage["cracked"]),
+            candidate_count=str(stage.get("candidate_count", "-")),
             on_finish=continue_stages,
         )
 
-    def start_auto_command(self, name: str, cmd: list[str], cwd: str | None, session_log: Path, engine: str, hash_file: Path, mode_label: str, cracked: Path, on_finish=None) -> None:
+    def start_auto_command(
+        self, name: str, cmd: list[str], cwd: str | None, session_log: Path, engine: str,
+        hash_file: Path, mode_label: str, cracked: Path, candidate_count: str = "-", on_finish=None,
+    ) -> None:
         self.quick_status.set(f"{name} 執行中，結果會寫入 {cracked.name}")
         self.output_job_var.set(name)
         self.output_status_var.set("執行中")
@@ -2480,7 +2496,9 @@ class PasswordToolGUI(tk.Tk):
         self.output_file_var.set(str(cracked))
         self.refresh_output_overview()
         self.update_jobs_tree(status="執行中")
-        plan = self.describe_auto_attack_plan(name, cmd, cwd, session_log, engine, hash_file, mode_label, cracked)
+        plan = self.describe_auto_attack_plan(
+            name, cmd, cwd, session_log, engine, hash_file, mode_label, cracked, candidate_count
+        )
         self.refresh_output_overview()
         self.log(plan)
         try:
