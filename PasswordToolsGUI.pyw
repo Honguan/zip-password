@@ -2231,6 +2231,7 @@ class PasswordToolGUI(tk.Tk):
             if not john_text.strip():
                 raise RuntimeError("沒有取得可破解的雜湊。")
 
+            paths["cracked"].unlink(missing_ok=True)
             paths["john_hash"].write_text(prepare_hash_output(john_text, "john"), encoding="utf-8", newline="\n")
             hashcat_text = prepare_hash_output(john_text, "hashcat")
             paths["hashcat_hash"].write_text(hashcat_text, encoding="utf-8", newline="\n")
