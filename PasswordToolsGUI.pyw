@@ -2228,7 +2228,10 @@ class PasswordToolGUI(tk.Tk):
         if follow_order:
             library_wordlist = self.prepare_library_wordlist(dictionary_sources, paths["library_wordlist"])
             if library_wordlist:
-                add_stage("階段1 字典庫破解", library_wordlist, "dict")
+                attack_wordlist = self.prepare_auto_wordlist(
+                    library_wordlist, paths["expanded_wordlist"], bool(settings["expand_wordlist"])
+                )
+                add_stage("階段1 字典庫破解", attack_wordlist, "dict")
             combo_wordlist = self.prepare_combo_wordlist(combo_file, combo_key, paths)
             if combo_wordlist:
                 add_stage("階段2 組合破解", combo_wordlist, "combo")
