@@ -1129,8 +1129,7 @@ class PasswordToolGUI(tk.Tk):
         status_box = ttk.Frame(parent, padding=(10, 8), style="Soft.TFrame")
         status_box.grid(row=13, column=0, sticky="ew")
         status_box.columnconfigure(0, weight=1)
-        ttk.Label(status_box, text="流程提示", style="Soft.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(status_box, textvariable=self.quick_status, style="Soft.TLabel", wraplength=340).grid(row=1, column=0, sticky="w", pady=(4, 0))
+        ttk.Label(status_box, textvariable=self.quick_status, style="Soft.TLabel", wraplength=340).grid(row=0, column=0, sticky="w")
 
     def _browse_quick_file(self) -> None:
         path = filedialog.askopenfilename(filetypes=[("支援檔案", "*.zip *.zipx *.rar *.7z *.pdf *.doc *.docx *.xls *.xlsx *.ppt *.pptx *.odt *.ods *.odp *.hash *.txt"), ("所有檔案", "*.*")])
