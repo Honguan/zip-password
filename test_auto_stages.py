@@ -57,7 +57,7 @@ class AutoStagesTests(TestCase):
 
             gui.start_auto_stages(stages, 0)
             callback = gui.start_auto_command.call_args.kwargs["on_finish"]
-            callback(0)
+            callback(0, False)
 
         self.assertEqual(gui.start_auto_command.call_count, 2)
 
@@ -69,10 +69,32 @@ class AutoStagesTests(TestCase):
 
             gui.start_auto_stages(self.stages(cracked), 0)
             callback = gui.start_auto_command.call_args.kwargs["on_finish"]
-            callback(0)
+            callback(0, False)
 
         self.assertEqual(gui.start_auto_command.call_count, 1)
         self.assertIn("找到密碼", gui.quick_status.value)
+
+    def test_nonzero_exit_does_not_start_the_next_stage(self):
+        with TemporaryDirectory() as temp:
+            gui = self.make_gui()
+            gui.start_auto_stages(self.stages(Path(temp) / "cracked.txt"), 0)
+
+            callback = gui.start_auto_command.call_args.kwargs["on_finish"]
+            callback(2, False)
+
+        self.assertEqual(gui.start_auto_command.call_count, 1)
+        self.assertIn("失敗", gui.quick_status.value)
+
+    def test_cancelled_stage_does_not_start_the_next_stage(self):
+        with TemporaryDirectory() as temp:
+            gui = self.make_gui()
+            gui.start_auto_stages(self.stages(Path(temp) / "cracked.txt"), 0)
+
+            callback = gui.start_auto_command.call_args.kwargs["on_finish"]
+            callback(-15, True)
+
+        self.assertEqual(gui.start_auto_command.call_count, 1)
+        self.assertIn("停止", gui.quick_status.value)
 
     def test_attack_plan_uses_precomputed_dictionary_count(self):
         gui = object.__new__(APP.PasswordToolGUI)
