@@ -21,6 +21,7 @@ class FirstRunSetupTests(TestCase):
     def make_gui(self):
         gui = object.__new__(APP.PasswordToolGUI)
         gui.config_data = {}
+        gui._tools_setup_lock = APP.threading.Lock()
         gui.quick_auto_download = Value(True)
         gui.enqueue_log = Mock()
         gui.enqueue_status = Mock()
@@ -52,6 +53,39 @@ class FirstRunSetupTests(TestCase):
 
         gui.download_hashcat.assert_not_called()
         gui.download_john.assert_not_called()
+        self.assertEqual(gui.config_data, installed)
+
+    def test_repeated_async_setup_is_ignored_until_the_worker_finishes(self):
+        gui = self.make_gui()
+        thread = Mock()
+
+        with patch.object(APP.threading, "Thread", return_value=thread) as thread_class:
+            gui.ensure_tools_async()
+            gui.ensure_tools_async()
+
+        thread_class.assert_called_once_with(target=gui._ensure_tools_worker, args=(False, True), daemon=True)
+        thread.start.assert_called_once_with()
+        gui.enqueue_status.assert_called_with("工具環境檢查已在執行")
+        gui._tools_setup_lock.release()
+
+    def test_setup_can_run_again_after_completion(self):
+        gui = self.make_gui()
+        installed = {"hashcat_path": "hashcat.exe", "john_path": "john.exe", "john_run_dir": "john-run"}
+
+        with patch.object(APP, "ensure_tool_dirs"), patch.object(APP, "find_tool_paths", return_value=installed) as find_paths:
+            gui._ensure_tools_worker()
+            gui._ensure_tools_worker()
+
+        self.assertEqual(find_paths.call_count, 2)
+
+    def test_setup_can_retry_after_failure(self):
+        gui = self.make_gui()
+        installed = {"hashcat_path": "hashcat.exe", "john_path": "john.exe", "john_run_dir": "john-run"}
+
+        with patch.object(APP, "ensure_tool_dirs"), patch.object(APP, "find_tool_paths", side_effect=[RuntimeError("failed"), installed]):
+            gui._ensure_tools_worker()
+            gui._ensure_tools_worker()
+
         self.assertEqual(gui.config_data, installed)
 
 
