@@ -16,9 +16,17 @@ class AutoEngineTests(TestCase):
             root = Path(temp)
             hashcat = root / "hashcat.exe"
             john = root / "john.exe"
+            source = root / "sample.rar"
+            cracked = root / "sample_cracked.txt"
             hashcat.touch()
             john.touch()
-            paths = {"john_hash": root / "john.hash", "hashcat_hash": root / "hashcat.hash"}
+            source.write_bytes(b"changed archive content")
+            cracked.write_text("password-from-previous-content\n", encoding="utf-8")
+            paths = {
+                "john_hash": root / "john.hash",
+                "hashcat_hash": root / "hashcat.hash",
+                "cracked": cracked,
+            }
             gui = object.__new__(APP.PasswordToolGUI)
             gui.config_data = {"hashcat_path": str(hashcat), "john_path": str(john)}
             gui._ensure_tools_worker = Mock()
@@ -42,10 +50,11 @@ class AutoEngineTests(TestCase):
             with patch.object(APP, "prepare_hash_output", return_value="hash"), patch.object(
                 APP, "detect_hashcat_mode", return_value="13000 - RAR5"
             ):
-                gui._auto_workflow(root / "sample.rar", "wordlist.txt", settings)
+                gui._auto_workflow(source, "wordlist.txt", settings)
 
         self.assertEqual(gui.build_auto_attack_stages.call_args.args[2], "john")
-        gui.convert_file_to_hash_text.assert_called_once_with(root / "sample.rar", "rar2john.exe", True)
+        gui.convert_file_to_hash_text.assert_called_once_with(source, "rar2john.exe", True)
+        self.assertFalse(cracked.exists())
         gui.after.assert_not_called()
         gui.enqueue_ui.call_args.args[0]()
         gui.start_auto_stages.assert_called_once_with([], 0)
