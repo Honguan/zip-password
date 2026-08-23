@@ -453,9 +453,9 @@ def safe_stem(text: str) -> str:
     return value[:80] or "output"
 
 
-def result_dir_for_source(src: Path) -> Path:
+def result_dir_for_source(src: Path, output_dir: Path) -> Path:
     digest = hashlib.sha1(str(src.resolve() if src.exists() else src).encode("utf-8", errors="ignore")).hexdigest()[:8]
-    out_dir = RESULTS_DIR / f"{safe_stem(src.stem)}_{digest}"
+    out_dir = output_dir / f"{safe_stem(src.stem)}_{digest}"
     out_dir.mkdir(parents=True, exist_ok=True)
     return out_dir
 
@@ -1975,7 +1975,8 @@ class PasswordToolGUI(tk.Tk):
 
     def suggest_extract_output(self) -> None:
         src = Path(self.extract_input.get().strip())
-        out_dir = result_dir_for_source(src) if src.name else Path(self.config_data.get("output_dir", str(RESULTS_DIR)) or RESULTS_DIR)
+        configured_dir = Path(self.config_data.get("output_dir", str(RESULTS_DIR)) or RESULTS_DIR)
+        out_dir = result_dir_for_source(src, configured_dir) if src.name else configured_dir
         out_dir.mkdir(parents=True, exist_ok=True)
         stem = src.stem if src.name else "hash"
         suffix = "_hashcat.hash" if self.extract_target.get() == "hashcat" else ".hash"
@@ -2026,7 +2027,8 @@ class PasswordToolGUI(tk.Tk):
         self.output_queue_var.set("-")
         self.output_candidate_var.set("-")
         self.output_mode_var.set("-")
-        self.output_file_var.set(str(result_dir_for_source(src)))
+        output_dir = Path(self.config_data.get("output_dir", str(RESULTS_DIR)) or RESULTS_DIR)
+        self.output_file_var.set(str(result_dir_for_source(src, output_dir)))
         self.refresh_output_overview()
         self.progress_value.set(0)
         self.set_cracked_passwords([])
@@ -2045,7 +2047,8 @@ class PasswordToolGUI(tk.Tk):
         self.auto_thread.start()
 
     def _auto_output_paths(self, src: Path) -> dict[str, Path]:
-        out_dir = result_dir_for_source(src)
+        output_dir = Path(self.config_data.get("output_dir", str(RESULTS_DIR)) or RESULTS_DIR)
+        out_dir = result_dir_for_source(src, output_dir)
         base = out_dir / safe_stem(src.stem)
         return {
             "john_hash": base.with_name(base.name + ".hash"),

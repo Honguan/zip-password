@@ -10,7 +10,41 @@ APP = importlib.machinery.SourceFileLoader(
 ).load_module()
 
 
+class Value:
+    def __init__(self, value=""):
+        self.value = value
+
+    def get(self):
+        return self.value
+
+    def set(self, value):
+        self.value = value
+
+
 class AutoEngineTests(TestCase):
+    def test_custom_output_directory_is_used_by_auto_and_extract_paths(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            output_dir = root / "custom-output"
+            source = root / "sample.zip"
+            source.touch()
+            gui = object.__new__(APP.PasswordToolGUI)
+            gui.config_data = {"output_dir": str(output_dir)}
+            gui.extract_input = Value(str(source))
+            gui.extract_target = Value("hashcat")
+            gui.extract_output = Value()
+
+            paths = gui._auto_output_paths(source)
+            gui.suggest_extract_output()
+            with patch.object(APP.os, "startfile") as startfile:
+                gui.open_output_folder()
+
+        result_dir = next(iter(paths.values())).parent
+        self.assertEqual(result_dir.parent, output_dir)
+        self.assertTrue(all(path.parent == result_dir for path in paths.values()))
+        self.assertEqual(Path(gui.extract_output.get()).parent, result_dir)
+        startfile.assert_called_once_with(str(output_dir))
+
     def test_rar5_uses_john_before_hashcat(self):
         with TemporaryDirectory() as temp:
             root = Path(temp)
