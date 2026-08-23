@@ -1126,11 +1126,11 @@ class PasswordToolGUI(tk.Tk):
         ttk.Checkbutton(parent, text="導入字典時自動拆字與組合", variable=self.quick_expand_wordlist, style="Card.TCheckbutton").grid(row=11, column=0, sticky="w", pady=(0, 6))
         ttk.Checkbutton(parent, text="缺少 hashcat / John 時自動下載", variable=self.quick_auto_download, style="Card.TCheckbutton").grid(row=12, column=0, sticky="w", pady=(0, 10))
 
-        status_box = ttk.Frame(parent, padding=12, style="Soft.TFrame")
+        status_box = ttk.Frame(parent, padding=(10, 8), style="Soft.TFrame")
         status_box.grid(row=13, column=0, sticky="ew")
         status_box.columnconfigure(0, weight=1)
         ttk.Label(status_box, text="流程提示", style="Soft.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(status_box, textvariable=self.quick_status, style="Soft.TLabel", wraplength=260).grid(row=1, column=0, sticky="w", pady=(6, 0))
+        ttk.Label(status_box, textvariable=self.quick_status, style="Soft.TLabel", wraplength=340).grid(row=1, column=0, sticky="w", pady=(4, 0))
 
     def _browse_quick_file(self) -> None:
         path = filedialog.askopenfilename(filetypes=[("支援檔案", "*.zip *.zipx *.rar *.7z *.pdf *.doc *.docx *.xls *.xlsx *.ppt *.pptx *.odt *.ods *.odp *.hash *.txt"), ("所有檔案", "*.*")])
