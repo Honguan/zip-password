@@ -518,97 +518,94 @@ def split_candidate_tokens(text: str) -> list[str]:
 
 
 def build_expanded_wordlist(source: Path, dest: Path, limit: int = WORDLIST_EXPANSION_LIMIT) -> int:
-    raw = source.read_bytes()
-    text = clean_output(decode_bytes(raw))
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    candidates: dict[str, None] = {}
-
-    def add(value: str) -> bool:
-        value = value.strip("\r\n")
-        if not value or len(value) > 256:
-            return len(candidates) >= limit
-        candidates.setdefault(value, None)
-        return len(candidates) >= limit
-
-    def add_with_case(value: str) -> bool:
-        for variant in case_variants(value):
-            if add(variant):
-                return True
-        return False
-
-    line_tokens: list[list[str]] = []
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if limit <= 0:
+        dest.write_text("", encoding="utf-8")
+        return 0
+    candidates: set[str] = set()
     token_pool: list[str] = []
     token_seen: set[str] = set()
 
-    for line in lines:
-        if add_with_case(line):
-            break
-        compact = re.sub(r"\s+", "", line)
-        if compact != line and add_with_case(compact):
-            break
-        tokens = split_candidate_tokens(line)
-        if tokens:
-            line_tokens.append(tokens)
-        for token in tokens:
-            if add_with_case(token):
+    with source.open("rb") as source_file, dest.open("w", encoding="utf-8", newline="\n") as dest_file:
+        def add(value: str) -> bool:
+            value = value.strip("\r\n")
+            if value and len(value) <= 256 and value not in candidates:
+                candidates.add(value)
+                dest_file.write(value + "\n")
+            return len(candidates) >= limit
+
+        def add_with_case(value: str) -> bool:
+            for variant in case_variants(value):
+                if add(variant):
+                    return True
+            return False
+
+        for raw_line in source_file:
+            line = clean_output(decode_bytes(raw_line)).strip()
+            if not line:
+                continue
+            if add_with_case(line):
                 break
-            key = token.lower()
-            if key not in token_seen:
-                token_seen.add(key)
-                token_pool.append(token)
-            for char in token:
-                if not char.isspace() and add(char):
+            compact = re.sub(r"\s+", "", line)
+            if compact != line and add_with_case(compact):
+                break
+            tokens = split_candidate_tokens(line)
+            for token in tokens:
+                if add_with_case(token):
                     break
-        if len(candidates) >= limit:
-            break
-
-    for tokens in line_tokens:
-        if len(candidates) >= limit:
-            break
-        usable = tokens[:8]
-        if len(usable) < 2:
-            continue
-        for joiner in WORDLIST_JOINERS:
-            if add(joiner.join(usable)):
-                break
-            if add(joiner.join(reversed(usable))):
-                break
-            if len(usable) > 2 and add(joiner.join([usable[0], usable[-1]])):
-                break
-
-    pool = token_pool[:120]
-    for first in pool:
-        if len(candidates) >= limit:
-            break
-        for second in pool:
+                key = token.lower()
+                if len(token_pool) < 120 and key not in token_seen:
+                    token_seen.add(key)
+                    token_pool.append(token)
+                for char in token:
+                    if not char.isspace() and add(char):
+                        break
             if len(candidates) >= limit:
                 break
-            if first == second:
+            usable = tokens[:8]
+            if len(usable) < 2:
                 continue
             for joiner in WORDLIST_JOINERS:
-                if add(first + joiner + second):
+                if add(joiner.join(usable)):
                     break
-
-    small_pool = token_pool[:32]
-    for first in small_pool:
-        if len(candidates) >= limit:
-            break
-        for second in small_pool:
+                if add(joiner.join(reversed(usable))):
+                    break
+                if len(usable) > 2 and add(joiner.join([usable[0], usable[-1]])):
+                    break
             if len(candidates) >= limit:
                 break
-            if first == second:
-                continue
-            for third in small_pool:
+
+        pool = token_pool[:120]
+        for first in pool:
+            if len(candidates) >= limit:
+                break
+            for second in pool:
                 if len(candidates) >= limit:
                     break
-                if third in {first, second}:
+                if first == second:
                     continue
                 for joiner in WORDLIST_JOINERS:
-                    if add(joiner.join([first, second, third])):
+                    if add(first + joiner + second):
                         break
 
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text("\n".join(candidates.keys()) + ("\n" if candidates else ""), encoding="utf-8", newline="\n")
+        small_pool = token_pool[:32]
+        for first in small_pool:
+            if len(candidates) >= limit:
+                break
+            for second in small_pool:
+                if len(candidates) >= limit:
+                    break
+                if first == second:
+                    continue
+                for third in small_pool:
+                    if len(candidates) >= limit:
+                        break
+                    if third in {first, second}:
+                        continue
+                    for joiner in WORDLIST_JOINERS:
+                        if add(joiner.join([first, second, third])):
+                            break
+
     return len(candidates)
 
 
