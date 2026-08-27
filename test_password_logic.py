@@ -53,7 +53,6 @@ class PasswordLogicTests(TestCase):
             "$office$*2007*hash": "9400 - MS Office 2007",
             "$office$*2010*hash": "9500 - MS Office 2010",
             "$office$*2013*hash": "9600 - MS Office 2013",
-            "$pdf$2*3*hash": "10500 - PDF 1.4-1.6",
         }
         for hash_text, expected in modes.items():
             with self.subTest(hash_text=hash_text):
@@ -62,6 +61,22 @@ class PasswordLogicTests(TestCase):
             logic.extract_passwords_from_show("hash:secret\n0 passwords cracked\n", "hashcat"),
             ["secret"],
         )
+
+    def test_pdf_modes_use_version_revision_and_key_length(self):
+        examples = {
+            "$pdf$1*2*40*-1*0*16*01221086741440841668371056103222*32*27c3fecef6d46a78eb61b8b4dbc690f5f8a2912bbb9afc842c12d79481568b74*32*0000000000000000000000000000000000000000000000000000000000000000": "10400 - PDF 1.1-1.3",
+            "$pdf$2*3*128*-4*1*16*62888255846156252261477183186121*32*6879919b1afd520bd3b7dbcc0868a0a500000000000000000000000000000000000*32*0000000000000000000000000000000000000000000000000000000000000000": "10500 - PDF 1.4-1.6",
+            "$pdf$1*3*40*-4*1*16*5e1f73575e1f73575e1f73575e1f7357*32*c0be424bef466277092f2a1ba0fbe506ebabe5c01db100dedc0ffeebabe5c01d*32*0ff1cedeadce110ff1cedeadce110ff1cedeadce110ff1cedeadce11babebabe": "10510 - PDF 1.3-1.6 RC4-40",
+            "$pdf$5*5*256*-1028*1*16*28562274676426582441147358074521": "10600 - PDF 1.7 Level 3",
+            "$pdf$5*6*256*-1028*1*16*62137640825124540503886403748430": "10700 - PDF 1.7 Level 8",
+            "$pdf$2*3*128*-3904*1*16*631ed33746e50fba5caf56bcc39e09c6*32*5f9d0e4f0b39835dace0d306c40cd6b700000000000000000000000000000000*32*842103b0a0dc886db9223b94afe2d7cd63389079b61986a4fcf70095ad630c24*known-user-pass": "25400 - PDF 1.4-1.6 user/owner",
+        }
+
+        for hash_text, expected in examples.items():
+            with self.subTest(hash_text=hash_text[:20]):
+                self.assertEqual(logic.detect_hashcat_mode(hash_text), expected)
+
+        self.assertEqual(logic.detect_hashcat_mode("$pdf$9*9*256*unknown"), "")
 
     def test_john_password_parsing_preserves_password_fields(self):
         shown = (

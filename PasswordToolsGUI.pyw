@@ -156,7 +156,9 @@ HASHCAT_MODES = [
     "9400 - MS Office 2007",
     "9500 - MS Office 2010",
     "9600 - MS Office 2013",
+    "10400 - PDF 1.1-1.3",
     "10500 - PDF 1.4-1.6",
+    "10510 - PDF 1.3-1.6 RC4-40",
     "10600 - PDF 1.7 Level 3",
     "10700 - PDF 1.7 Level 8",
     "11600 - 7-Zip",
@@ -170,6 +172,7 @@ HASHCAT_MODES = [
     "23001 - SecureZIP AES-128",
     "23002 - SecureZIP AES-192",
     "23003 - SecureZIP AES-256",
+    "25400 - PDF 1.4-1.6 user/owner",
 ]
 
 HASHCAT_ATTACKS = [
@@ -2166,6 +2169,9 @@ class PasswordToolGUI(tk.Tk):
             paths["hashcat_hash"].write_text(hashcat_text, encoding="utf-8", newline="\n")
 
             mode_label = detect_hashcat_mode(hashcat_text)
+            unknown_pdf_mode = not mode_label and any(
+                line.strip().lower().startswith("$pdf$") for line in hashcat_text.splitlines()
+            )
             if mode_label.startswith("13000") and self.config_data.get("john_path") and Path(self.config_data["john_path"]).exists():
                 stages = self.build_auto_attack_stages(src, paths, "john", paths["john_hash"], "", wordlist, settings)
                 self.enqueue_ui(lambda: self.start_auto_stages(stages, 0))
@@ -2173,8 +2179,12 @@ class PasswordToolGUI(tk.Tk):
                 stages = self.build_auto_attack_stages(src, paths, "hashcat", paths["hashcat_hash"], mode_label, wordlist, settings)
                 self.enqueue_ui(lambda: self.start_auto_stages(stages, 0))
             elif self.config_data.get("john_path") and Path(self.config_data["john_path"]).exists():
+                if unknown_pdf_mode:
+                    self.enqueue_log("\n[自動流程] 無法安全判定 PDF 的 Hashcat 模式，改用 John。\n")
                 stages = self.build_auto_attack_stages(src, paths, "john", paths["john_hash"], "", wordlist, settings)
                 self.enqueue_ui(lambda: self.start_auto_stages(stages, 0))
+            elif unknown_pdf_mode:
+                raise RuntimeError("無法安全判定 PDF 的 Hashcat 模式；請設定 John 或在進階工具手動選擇模式。")
             else:
                 raise SetupError("找不到可用的 hashcat 或 John。", HASHCAT_DOWNLOAD_PAGE)
         except InterruptedError as exc:

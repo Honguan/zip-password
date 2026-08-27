@@ -93,6 +93,43 @@ class AutoEngineTests(TestCase):
         gui.enqueue_ui.call_args.args[0]()
         gui.start_auto_stages.assert_called_once_with([], 0)
 
+    def test_unknown_pdf_mode_explicitly_falls_back_to_john(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            hashcat = root / "hashcat.exe"
+            john = root / "john.exe"
+            source = root / "sample.pdf"
+            hashcat.touch()
+            john.touch()
+            source.touch()
+            paths = {
+                "john_hash": root / "john.hash",
+                "hashcat_hash": root / "hashcat.hash",
+                "cracked": root / "cracked.txt",
+            }
+            gui = object.__new__(APP.PasswordToolGUI)
+            gui.config_data = {"hashcat_path": str(hashcat), "john_path": str(john)}
+            gui._ensure_tools_worker = Mock()
+            gui._auto_output_paths = Mock(return_value=paths)
+            gui.read_hash_text = Mock(return_value="$pdf$9*9*256*unknown")
+            gui.build_auto_attack_stages = Mock(return_value=[])
+            gui.enqueue_ui = Mock()
+            gui.enqueue_log = Mock()
+            gui.enqueue_status = Mock()
+            settings = {
+                "auto_download": True,
+                "converter": "",
+                "safe_copy": True,
+                "expand_wordlist": False,
+                "hashcat_mask": "",
+                "john_mask": "",
+            }
+
+            gui._auto_workflow(source, "wordlist.txt", settings)
+
+        self.assertEqual(gui.build_auto_attack_stages.call_args.args[2], "john")
+        self.assertTrue(any("無法安全判定 PDF" in call.args[0] for call in gui.enqueue_log.call_args_list))
+
 
 if __name__ == "__main__":
     main()
