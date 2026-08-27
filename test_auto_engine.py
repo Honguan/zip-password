@@ -45,7 +45,7 @@ class AutoEngineTests(TestCase):
         self.assertEqual(Path(gui.extract_output.get()).parent, result_dir)
         startfile.assert_called_once_with(str(output_dir))
 
-    def test_rar5_uses_john_before_hashcat(self):
+    def test_rar5_uses_hashcat_when_both_tools_exist(self):
         with TemporaryDirectory() as temp:
             root = Path(temp)
             hashcat = root / "hashcat.exe"
@@ -86,12 +86,46 @@ class AutoEngineTests(TestCase):
             ):
                 gui._auto_workflow(source, "wordlist.txt", settings)
 
-        self.assertEqual(gui.build_auto_attack_stages.call_args.args[2], "john")
+        self.assertEqual(gui.build_auto_attack_stages.call_args.args[2], "hashcat")
         gui.convert_file_to_hash_text.assert_called_once_with(source, "rar2john.exe", True)
         self.assertFalse(cracked.exists())
         gui.after.assert_not_called()
         gui.enqueue_ui.call_args.args[0]()
         gui.start_auto_stages.assert_called_once_with([], 0)
+
+    def test_rar5_falls_back_to_john_when_hashcat_is_unavailable(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            john = root / "john.exe"
+            source = root / "sample.rar"
+            john.touch()
+            source.touch()
+            paths = {
+                "john_hash": root / "john.hash",
+                "hashcat_hash": root / "hashcat.hash",
+                "cracked": root / "cracked.txt",
+            }
+            gui = object.__new__(APP.PasswordToolGUI)
+            gui.config_data = {"hashcat_path": str(root / "missing.exe"), "john_path": str(john)}
+            gui._ensure_tools_worker = Mock()
+            gui._auto_output_paths = Mock(return_value=paths)
+            gui.read_hash_text = Mock(return_value="$rar5$16$hash")
+            gui.build_auto_attack_stages = Mock(return_value=[])
+            gui.enqueue_ui = Mock()
+            gui.enqueue_log = Mock()
+            gui.enqueue_status = Mock()
+            settings = {
+                "auto_download": True,
+                "converter": "",
+                "safe_copy": True,
+                "expand_wordlist": False,
+                "hashcat_mask": "",
+                "john_mask": "",
+            }
+
+            gui._auto_workflow(source, "wordlist.txt", settings)
+
+        self.assertEqual(gui.build_auto_attack_stages.call_args.args[2], "john")
 
     def test_unknown_pdf_mode_explicitly_falls_back_to_john(self):
         with TemporaryDirectory() as temp:

@@ -2180,10 +2180,7 @@ class PasswordToolGUI(tk.Tk):
             unknown_pdf_mode = not mode_label and any(
                 line.strip().lower().startswith("$pdf$") for line in hashcat_text.splitlines()
             )
-            if mode_label.startswith("13000") and self.config_data.get("john_path") and Path(self.config_data["john_path"]).exists():
-                stages = self.build_auto_attack_stages(src, paths, "john", paths["john_hash"], "", wordlist, settings)
-                self.enqueue_ui(lambda: self.start_auto_stages(stages, 0))
-            elif mode_label and self.config_data.get("hashcat_path") and Path(self.config_data["hashcat_path"]).exists():
+            if mode_label and self.config_data.get("hashcat_path") and Path(self.config_data["hashcat_path"]).exists():
                 stages = self.build_auto_attack_stages(src, paths, "hashcat", paths["hashcat_hash"], mode_label, wordlist, settings)
                 self.enqueue_ui(lambda: self.start_auto_stages(stages, 0))
             elif self.config_data.get("john_path") and Path(self.config_data["john_path"]).exists():

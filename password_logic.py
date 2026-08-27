@@ -67,6 +67,9 @@ def prepare_hash_output(text: str, target: str) -> str:
         if dollar > 0 and ":" in line[:dollar]:
             line = line[dollar:]
         lower = line.lower()
+        if lower.startswith("$rar5$") and ":" in line:
+            line = line.split(":", 1)[0]
+            lower = line.lower()
         for marker in ("$/zip2$", "$/pkzip2$"):
             end = lower.find(marker)
             if end >= 0:
