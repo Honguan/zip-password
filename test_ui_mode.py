@@ -14,9 +14,21 @@ class FakeNotebook:
 class FakeButton:
     def __init__(self):
         self.text = ""
+        self.states = []
 
     def configure(self, **kwargs):
         self.text = kwargs["text"]
+
+    def state(self, values):
+        self.states = values
+
+
+class FakeValue:
+    def __init__(self):
+        self.value = ""
+
+    def set(self, value):
+        self.value = value
 
 
 class FakeFrame:
@@ -31,6 +43,23 @@ class FakeFrame:
 
 
 class UiModeTests(unittest.TestCase):
+    def test_job_render_distinguishes_stopping_from_cancelled(self):
+        gui = object.__new__(APP.PasswordToolGUI)
+        gui.quick_status = FakeValue()
+        gui.quick_start_button = FakeButton()
+        gui.stop_button = FakeButton()
+
+        gui.render_job(APP.JobSnapshot(state=APP.JobState.STOPPING))
+        self.assertEqual(gui.quick_status.value, "正在停止工作，請稍候。")
+        self.assertEqual(gui.quick_start_button.states, ["disabled"])
+        self.assertEqual(gui.stop_button.text, "正在停止…")
+        self.assertEqual(gui.stop_button.states, ["disabled"])
+
+        gui.render_job(APP.JobSnapshot(state=APP.JobState.CANCELLED))
+        self.assertEqual(gui.quick_status.value, "工作已取消。")
+        self.assertEqual(gui.quick_start_button.states, ["!disabled"])
+        self.assertEqual(gui.stop_button.text, "停止")
+
     def test_tools_directory_is_not_an_editable_setting(self):
         self.assertFalse(hasattr(APP.default_config(), "tools_dir"))
 
