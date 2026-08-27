@@ -2297,7 +2297,7 @@ class PasswordToolGUI(tk.Tk):
             if cancelled:
                 self.quick_status.set("自動流程已停止。")
                 return
-            if code != 0:
+            if code != 0 and not (stage["engine"] == "hashcat" and code == 1):
                 self.quick_status.set(f"自動流程失敗（結束代碼 {code}）。")
                 return
             cracked = Path(stage["cracked"])
