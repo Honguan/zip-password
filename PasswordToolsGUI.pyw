@@ -36,6 +36,7 @@ from password_logic import (
     extract_passwords_from_show,
     merge_config,
     prepare_hash_output,
+    source_identity,
 )
 
 
@@ -472,8 +473,7 @@ def safe_stem(text: str) -> str:
 
 
 def result_dir_for_source(src: Path, output_dir: Path) -> Path:
-    digest = hashlib.sha1(str(src.resolve() if src.exists() else src).encode("utf-8", errors="ignore")).hexdigest()[:8]
-    out_dir = output_dir / f"{safe_stem(src.stem)}_{digest}"
+    out_dir = output_dir / source_identity(src)
     out_dir.mkdir(parents=True, exist_ok=True)
     return out_dir
 
