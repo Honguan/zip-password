@@ -2357,7 +2357,10 @@ class PasswordToolGUI(tk.Tk):
     def finalize_auto_cracked(self, engine: str, hash_file: Path, mode_label: str, cracked: Path) -> None:
         try:
             if engine == "hashcat":
-                cmd = [self.config_data["hashcat_path"], "-m", first_number(mode_label), "--show", str(hash_file)]
+                cmd = [
+                    self.config_data["hashcat_path"], "-m", first_number(mode_label),
+                    "--show", "--outfile-format", "2", str(hash_file),
+                ]
                 cwd = str(Path(self.config_data["hashcat_path"]).parent)
             else:
                 cmd = [self.config_data["john_path"], "--show", str(hash_file)]
@@ -2372,7 +2375,7 @@ class PasswordToolGUI(tk.Tk):
                 self.quick_status.set(f"破解結果讀取失敗（結束代碼 {proc.returncode}）。")
                 self.log(f"\n[破解結果錯誤] --show 結束代碼 {proc.returncode}\n")
                 return
-            passwords = extract_passwords_from_show(shown, engine)
+            passwords = extract_passwords_from_show(shown, engine, plaintext_only=engine == "hashcat")
             if passwords:
                 existing = cracked.read_text(encoding="utf-8", errors="replace").splitlines() if cracked.exists() else []
                 merged = list(dict.fromkeys([line for line in existing + passwords if line.strip()]))

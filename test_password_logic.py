@@ -75,6 +75,14 @@ class PasswordLogicTests(TestCase):
             ["p@ ss:wo$rd", "plain:with colon"],
         )
 
+    def test_hashcat_plaintext_only_output_preserves_passwords(self):
+        shown = "abc:def\none::two\n 密碼 值 \n"
+
+        self.assertEqual(
+            logic.extract_passwords_from_show(shown, "hashcat", plaintext_only=True),
+            ["abc:def", "one::two", " 密碼 值 "],
+        )
+
     def test_hashcat_zip_output_discards_john_metadata_only(self):
         text = (
             "archive.zip:$zip2$*0*3*hash$/zip2$:archive.zip:folder/file.txt\n"
