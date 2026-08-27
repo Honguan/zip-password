@@ -210,9 +210,6 @@ def find_in_env(env_name: str, exe_name: str) -> str:
         candidate = path / exe_name
         if candidate.is_file():
             return str(candidate)
-        matches = list(path.rglob(exe_name))
-        if matches:
-            return str(matches[0])
     return ""
 
 
