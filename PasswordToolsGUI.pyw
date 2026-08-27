@@ -628,6 +628,18 @@ def format_elapsed(seconds: float | None) -> str:
     return f"{hours:02}:{minutes:02}:{seconds:02}" if hours else f"{minutes:02}:{seconds:02}"
 
 
+@dataclass(frozen=True)
+class ProcessResult:
+    exit_code: int | None
+    cancelled: bool
+    error: Exception | None
+    elapsed: float
+
+
+class JobBusyError(RuntimeError):
+    pass
+
+
 class CommandRunner:
     def __init__(self, app: "PasswordToolGUI") -> None:
         self.app = app
@@ -640,6 +652,7 @@ class CommandRunner:
         self.on_finish = None
         self.started_at: float | None = None
         self.last_elapsed: float | None = None
+        self.last_result: ProcessResult | None = None
         self.cancel_requested = False
         self.session_log_buffer: list[str] = []
         self.session_log_buffer_size = 0
@@ -649,36 +662,16 @@ class CommandRunner:
             return self.process is not None and self.process.poll() is None
 
     def start(self, name: str, args: list[str], cwd: str | None = None, log_path: Path | None = None, on_finish=None) -> bool:
-        if not self.job_lock.acquire(blocking=False):
+        try:
+            proc = self._spawn(name, args, cwd, "stream", log_path, on_finish)
+        except JobBusyError:
             self.app.log(f"\n[啟動失敗] {name}：已有工作執行中。\n")
             messagebox.showwarning("已有工作執行中", "請先停止或等待目前工作完成。")
             return False
-        creationflags, startupinfo = hidden_startup()
-        try:
-            proc = subprocess.Popen(
-                args,
-                cwd=cwd or None,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                creationflags=creationflags,
-                startupinfo=startupinfo,
-            )
         except Exception as exc:
-            self.job_lock.release()
             self.app.log(f"\n[啟動失敗] {name}\n{traceback.format_exc()}\n")
             messagebox.showerror("啟動失敗", str(exc))
             return False
-        with self.lock:
-            self.process = proc
-            self.current_name = name
-            self.log_path = log_path
-            self.on_finish = on_finish
-            self.started_at = time.monotonic()
-            self.last_elapsed = None
-            self.cancel_requested = False
-            self.session_log_buffer.clear()
-            self.session_log_buffer_size = 0
         start_text = (
             f"\n[{time.strftime('%H:%M:%S')}] 啟動 {name}\n"
             f"工作目錄：{cwd or Path.cwd()}\n"
@@ -694,45 +687,77 @@ class CommandRunner:
         return True
 
     def capture(self, name: str, args: list[str], cwd: str | None = None) -> subprocess.CompletedProcess[bytes]:
+        proc = self._spawn(name, args, cwd, "capture")
+        self.app.enqueue_status(f"{name} 執行中")
+        error: Exception | None = None
+        try:
+            stdout, stderr = proc.communicate()
+            with self.lock:
+                if self.cancel_requested:
+                    error = InterruptedError(f"{name} 已停止")
+            if error:
+                raise InterruptedError(f"{name} 已停止")
+            return subprocess.CompletedProcess(args, proc.returncode, stdout, stderr)
+        except Exception as exc:
+            error = exc
+            raise
+        finally:
+            self._finalize_process(proc, proc.returncode, error)
+
+    def _spawn(
+        self, name: str, args: list[str], cwd: str | None, output_mode: str,
+        log_path: Path | None = None, on_finish=None,
+    ) -> subprocess.Popen[bytes]:
         if not self.job_lock.acquire(blocking=False):
-            raise RuntimeError("已有工作執行中，請先停止或等待目前工作完成。")
+            raise JobBusyError("已有工作執行中，請先停止或等待目前工作完成。")
         creationflags, startupinfo = hidden_startup()
         try:
             proc = subprocess.Popen(
                 args,
                 cwd=cwd or None,
+                stdin=subprocess.PIPE if output_mode == "stream" else None,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=subprocess.STDOUT if output_mode == "stream" else subprocess.PIPE,
                 creationflags=creationflags,
                 startupinfo=startupinfo,
             )
-        except Exception:
+        except Exception as exc:
+            self.last_result = ProcessResult(None, False, exc, 0.0)
             self.job_lock.release()
             raise
         with self.lock:
             self.process = proc
             self.current_name = name
+            self.log_path = log_path
+            self.on_finish = on_finish
             self.started_at = time.monotonic()
             self.last_elapsed = None
+            self.last_result = None
             self.cancel_requested = False
-        self.app.enqueue_status(f"{name} 執行中")
-        cancelled = False
-        try:
-            stdout, stderr = proc.communicate()
-            with self.lock:
-                cancelled = self.cancel_requested
-            if cancelled:
-                raise InterruptedError(f"{name} 已停止")
-            return subprocess.CompletedProcess(args, proc.returncode, stdout, stderr)
-        finally:
-            with self.lock:
-                if self.process is proc:
-                    self.process = None
-                    if self.started_at is not None:
-                        self.last_elapsed = time.monotonic() - self.started_at
-                    self.started_at = None
-            self.job_lock.release()
-            self.app.enqueue_status(f"{name} {'已停止' if cancelled else '已結束'}")
+            self.session_log_buffer.clear()
+            self.session_log_buffer_size = 0
+        return proc
+
+    def _finalize_process(
+        self, proc: subprocess.Popen[bytes], exit_code: int | None, error: Exception | None = None,
+        name: str | None = None,
+    ) -> tuple[ProcessResult, object]:
+        callback = None
+        with self.lock:
+            cancelled = self.cancel_requested
+            elapsed = time.monotonic() - self.started_at if self.started_at is not None else 0.0
+            if self.process is proc:
+                self.process = None
+                self.started_at = None
+                self.last_elapsed = elapsed
+                callback = self.on_finish
+                self.log_path = None
+                self.on_finish = None
+        result = ProcessResult(exit_code, cancelled, error, elapsed)
+        self.last_result = result
+        self.job_lock.release()
+        self.app.enqueue_status(f"{name or self.current_name} {'已停止' if cancelled else '已結束'}")
+        return result, callback
 
     def elapsed_seconds(self) -> float | None:
         with self.lock:
@@ -760,34 +785,26 @@ class CommandRunner:
 
     def _reader(self, proc: subprocess.Popen[bytes], name: str) -> None:
         assert proc.stdout is not None
-        while True:
-            chunk = proc.stdout.readline()
-            if not chunk:
-                break
-            text = clean_output(decode_bytes(chunk))
-            self.app.enqueue_log(text)
-            self._append_session_log(text)
-        code = proc.wait()
+        error: Exception | None = None
+        code: int | None = None
+        try:
+            while True:
+                chunk = proc.stdout.readline()
+                if not chunk:
+                    break
+                text = clean_output(decode_bytes(chunk))
+                self.app.enqueue_log(text)
+                self._append_session_log(text)
+            code = proc.wait()
+        except Exception as exc:
+            error = exc
+            code = proc.poll()
         end_text = f"\n[{time.strftime('%H:%M:%S')}] {name} 結束，代碼 {code}\n"
         self.app.enqueue_log(end_text)
         self._append_session_log(end_text, flush=True)
-        finish_callback = None
-        with self.lock:
-            if self.process is proc:
-                self.process = None
-                if self.started_at is not None:
-                    self.last_elapsed = time.monotonic() - self.started_at
-                self.started_at = None
-                finish_callback = self.on_finish
-                self.log_path = None
-                self.on_finish = None
-                cancelled = self.cancel_requested
-            else:
-                cancelled = False
-        self.job_lock.release()
-        self.app.enqueue_status(f"{name} {'已停止' if cancelled else '已結束'}")
+        result, finish_callback = self._finalize_process(proc, code, error, name)
         if finish_callback:
-            self.app.enqueue_ui(lambda: finish_callback(code, cancelled))
+            self.app.enqueue_ui(lambda: finish_callback(code, result.cancelled))
 
     def send_key(self, key: str) -> None:
         with self.lock:
