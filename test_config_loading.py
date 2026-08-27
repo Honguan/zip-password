@@ -38,25 +38,28 @@ class ConfigLoadingTests(TestCase):
 
     def test_malformed_json_uses_defaults_without_overwriting_source(self):
         original = '{"path": "custom", broken}'
-        path, (config, error) = self.load(original)
+        path, (config, error, source) = self.load(original)
 
         self.assertEqual(config, {"path": "default", "enabled": "1"})
         self.assertIn("JSON", error)
+        self.assertEqual(source, path)
         self.assertEqual(path.read_text(encoding="utf-8"), original)
 
     def test_non_object_json_uses_defaults_without_overwriting_source(self):
         original = '["not", "an", "object"]'
-        path, (config, error) = self.load(original)
+        path, (config, error, source) = self.load(original)
 
         self.assertEqual(config, {"path": "default", "enabled": "1"})
         self.assertIn("不是 JSON object", error)
+        self.assertEqual(source, path)
         self.assertEqual(path.read_text(encoding="utf-8"), original)
 
     def test_valid_config_loads_without_error(self):
-        _path, (config, error) = self.load('{"path": "custom", "unknown": "ignored"}')
+        path, (config, error, source) = self.load('{"path": "custom", "unknown": "ignored"}')
 
         self.assertEqual(config, {"path": "custom", "enabled": "1"})
         self.assertEqual(error, "")
+        self.assertEqual(source, path)
 
     def test_only_explicit_save_can_replace_config_after_load_error(self):
         gui = object.__new__(APP.PasswordToolGUI)
