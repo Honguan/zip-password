@@ -55,7 +55,7 @@ class WordlistFlowTests(TestCase):
         gui.prepare_auto_wordlist.assert_called_once_with(
             "merged.txt", Path("expanded_wordlist.txt"), True
         )
-        self.assertEqual(stages[0]["stage_name"], "階段1 字典庫破解")
+        self.assertEqual(stages[0]["stage_name"], "字典破解")
         self.assertIn("expanded.txt", builder.call_args_list[0].args)
 
     def test_default_order_keeps_the_merged_dictionary_when_disabled(self):
@@ -73,6 +73,44 @@ class WordlistFlowTests(TestCase):
             "merged.txt", Path("expanded_wordlist.txt"), False
         )
         self.assertIn("merged.txt", builder.call_args_list[0].args)
+
+    def test_strategy_builds_explicit_stage_plan(self):
+        expected = {
+            APP.AttackStrategy.AUTO: ["字典破解", "提示詞破解", "遮罩破解"],
+            APP.AttackStrategy.DICTIONARY: ["字典破解"],
+            APP.AttackStrategy.HINTS: ["提示詞破解"],
+            APP.AttackStrategy.MASK: ["遮罩破解"],
+        }
+        settings = {"expand_wordlist": False, "hashcat_mask": "", "john_mask": ""}
+        for strategy, stage_names in expected.items():
+            with self.subTest(strategy=strategy):
+                gui = self.make_gui()
+                gui.config_data.attack_strategy = strategy
+                gui.config_data.combo_key = "hint"
+                gui.prepare_combo_wordlist.return_value = "hints.txt"
+                with patch.object(APP, "build_auto_hashcat_command", return_value=["hashcat.exe"]), patch.object(
+                    Path, "write_text"
+                ):
+                    stages = gui.build_auto_attack_stages(
+                        Path("input.zip"), self.paths(), "hashcat", Path("hash.txt"), "0 - MD5", "source.txt", settings
+                    )
+
+                self.assertEqual([stage["stage_name"] for stage in stages], stage_names)
+
+    def test_source_strategies_reject_missing_candidates(self):
+        settings = {"expand_wordlist": False, "hashcat_mask": "", "john_mask": ""}
+        for strategy, message in (
+            (APP.AttackStrategy.DICTIONARY, "需要明確選擇"),
+            (APP.AttackStrategy.HINTS, "需要提示詞"),
+        ):
+            with self.subTest(strategy=strategy):
+                gui = self.make_gui()
+                gui.config_data.attack_strategy = strategy
+                gui.prepare_library_wordlist.return_value = ""
+                with self.assertRaisesRegex(ValueError, message):
+                    gui.build_auto_attack_stages(
+                        Path("input.zip"), self.paths(), "hashcat", Path("hash.txt"), "0 - MD5", "", settings
+                    )
 
     def test_duplicate_wordlist_download_starts_one_worker(self):
         gui = object.__new__(APP.PasswordToolGUI)

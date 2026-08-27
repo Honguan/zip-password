@@ -56,11 +56,11 @@ class ConfigLoadingTests(TestCase):
 
     def test_valid_config_loads_without_error(self):
         path, (config, error, source) = self.load(
-            '{"output_dir": "custom", "auto_follow_order": false, "unknown": "ignored"}'
+            '{"output_dir": "custom", "attack_strategy": "MASK", "unknown": "ignored"}'
         )
 
         self.assertEqual(config.output_dir, Path("custom"))
-        self.assertFalse(config.auto_follow_order)
+        self.assertEqual(config.attack_strategy, APP.AttackStrategy.MASK)
         self.assertNotIn("unknown", config.to_mapping())
         self.assertEqual(error, "")
         self.assertEqual(source, path)
@@ -82,10 +82,12 @@ class ConfigLoadingTests(TestCase):
         path, (config, error, _source) = self.load('{"auto_follow_order": "0"}')
 
         self.assertEqual(error, "")
-        self.assertFalse(config.auto_follow_order)
+        self.assertEqual(config.attack_strategy, APP.AttackStrategy.AUTO)
         with patch.object(APP, "CONFIG_PATH", path):
             APP.save_config(config)
-        self.assertIs(APP.read_config_file(path)["auto_follow_order"], False)
+        saved = APP.read_config_file(path)
+        self.assertEqual(saved["attack_strategy"], "AUTO")
+        self.assertNotIn("auto_follow_order", saved)
 
     def test_malformed_typed_value_reports_error_without_overwriting(self):
         original = '{"output_dir": ["invalid"]}'
