@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import fnmatch
+import hashlib
 import re
 from pathlib import Path
 
@@ -40,6 +41,13 @@ class HashModeDetection:
     status: str
     mode: str = ""
     candidates: tuple[str, ...] = ()
+
+
+def source_identity(source: Path) -> str:
+    resolved = source.resolve(strict=False)
+    digest = hashlib.sha1(str(resolved).encode("utf-8", errors="ignore")).hexdigest()[:8]
+    stem = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", source.stem).strip(" ._")[:40] or "output"
+    return f"{stem}_{digest}"
 
 
 def config_bool(value: str | bool | None, default: bool = True) -> bool:
@@ -129,7 +137,8 @@ def build_auto_hashcat_command(
     executable: str, hash_file: Path, mode: str, wordlist: str, cracked: Path, mask_file: Path,
     source: Path, configured_mask: str, session_suffix: str = "",
 ) -> list[str]:
-    session_base = f"auto_{source.stem}_{session_suffix}" if session_suffix else f"auto_{source.stem}"
+    identity = source_identity(source)
+    session_base = f"auto_{identity}_{session_suffix}" if session_suffix else f"auto_{identity}"
     session = re.sub(r"[^A-Za-z0-9_.-]+", "_", session_base)[:60] or "auto_hashcat"
     command = [
         executable, "-m", mode, "--session", session, "--status", "--status-timer", "10",
@@ -145,7 +154,8 @@ def build_auto_john_command(
     executable: str, hash_file: Path, wordlist: str, source: Path, configured_mask: str,
     session_suffix: str = "",
 ) -> list[str]:
-    session_base = f"auto_{source.stem}_{session_suffix}" if session_suffix else f"auto_{source.stem}"
+    identity = source_identity(source)
+    session_base = f"auto_{identity}_{session_suffix}" if session_suffix else f"auto_{identity}"
     session = re.sub(r"[^A-Za-z0-9_.-]+", "_", session_base)[:60] or "auto_john"
     command = [executable, f"--session={session}"]
     if wordlist:

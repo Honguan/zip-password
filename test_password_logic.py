@@ -13,29 +13,31 @@ class PasswordLogicTests(TestCase):
         self.assertFalse(logic.config_bool("off"))
 
     def test_auto_hashcat_command_preserves_dictionary_arguments(self):
+        source = Path("sample.zip")
         command = logic.build_auto_hashcat_command(
             "hashcat.exe", Path("hash.txt"), "0", "words.txt", Path("cracked.txt"),
-            Path("auto.hcmask"), Path("sample.zip"), "", "dict",
+            Path("auto.hcmask"), source, "", "dict",
         )
 
         self.assertEqual(
             command,
             [
-                "hashcat.exe", "-m", "0", "--session", "auto_sample_dict", "--status",
+                "hashcat.exe", "-m", "0", "--session", f"auto_{logic.source_identity(source)}_dict", "--status",
                 "--status-timer", "10", "--outfile", "cracked.txt", "--outfile-format", "2",
                 "-a", "0", "hash.txt", "words.txt",
             ],
         )
 
     def test_auto_john_command_preserves_default_mask_arguments(self):
+        source = Path("sample.zip")
         command = logic.build_auto_john_command(
-            "john.exe", Path("hash.txt"), "", Path("sample.zip"), logic.JOHN_DEFAULT_MASK
+            "john.exe", Path("hash.txt"), "", source, logic.JOHN_DEFAULT_MASK
         )
 
         self.assertEqual(
             command,
             [
-                "john.exe", "--session=auto_sample", "--mask=?d?d?d?d?d?d?d?d",
+                "john.exe", f"--session=auto_{logic.source_identity(source)}", "--mask=?d?d?d?d?d?d?d?d",
                 "--min-length=4", "hash.txt",
             ],
         )
@@ -65,6 +67,40 @@ class PasswordLogicTests(TestCase):
             logic.extract_passwords_from_show("hash:secret\n0 passwords cracked\n", "hashcat"),
             ["secret"],
         )
+
+    def test_same_basename_uses_distinct_bounded_tool_sessions(self):
+        with self.subTest(engine="hashcat"):
+            first = logic.build_auto_hashcat_command(
+                "hashcat.exe", Path("hash.txt"), "0", "words.txt", Path("cracked.txt"),
+                Path("auto.hcmask"), Path("C:/A/backup.zip"), "", "dict",
+            )[4]
+            second = logic.build_auto_hashcat_command(
+                "hashcat.exe", Path("hash.txt"), "0", "words.txt", Path("cracked.txt"),
+                Path("auto.hcmask"), Path("D:/B/backup.zip"), "", "dict",
+            )[4]
+            brute = logic.build_auto_hashcat_command(
+                "hashcat.exe", Path("hash.txt"), "0", "", Path("cracked.txt"),
+                Path("auto.hcmask"), Path("C:/A/backup.zip"), "", "brute",
+            )[4]
+            long_name = logic.build_auto_hashcat_command(
+                "hashcat.exe", Path("hash.txt"), "0", "words.txt", Path("cracked.txt"),
+                Path("auto.hcmask"), Path("C:/A") / ("a" * 100 + ".zip"), "", "dict",
+            )[4]
+        with self.subTest(engine="john"):
+            john_first = logic.build_auto_john_command(
+                "john.exe", Path("hash.txt"), "", Path("C:/A/backup.zip"), logic.JOHN_DEFAULT_MASK, "dict"
+            )[1].removeprefix("--session=")
+            john_second = logic.build_auto_john_command(
+                "john.exe", Path("hash.txt"), "", Path("D:/B/backup.zip"), logic.JOHN_DEFAULT_MASK, "dict"
+            )[1].removeprefix("--session=")
+
+        for session in (first, second, brute, long_name, john_first, john_second):
+            self.assertRegex(session, r"^[A-Za-z0-9_.-]{1,60}$")
+        self.assertTrue(all(session.endswith("_dict") for session in (first, second, long_name, john_first, john_second)))
+        self.assertTrue(brute.endswith("_brute"))
+        self.assertNotEqual(first, second)
+        self.assertNotEqual(first, brute)
+        self.assertNotEqual(john_first, john_second)
 
     def test_pdf_modes_use_version_revision_and_key_length(self):
         examples = {

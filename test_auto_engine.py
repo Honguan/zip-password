@@ -41,6 +41,7 @@ class AutoEngineTests(TestCase):
 
         result_dir = next(iter(paths.values())).parent
         self.assertEqual(result_dir.parent, output_dir)
+        self.assertEqual(result_dir.name, APP.source_identity(source))
         self.assertTrue(all(path.parent == result_dir for path in paths.values()))
         self.assertEqual(Path(gui.extract_output.get()).parent, result_dir)
         startfile.assert_called_once_with(str(output_dir))
