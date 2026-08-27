@@ -107,6 +107,14 @@ def count_text_lines(
         return "無法統計"
 
 
+def has_text_candidate(path: Path) -> bool:
+    try:
+        with path.open("rb") as source:
+            return any(decode_bytes(line).strip() for line in source)
+    except OSError:
+        return False
+
+
 @dataclass(frozen=True)
 class WordlistMergeFailure:
     source: Path

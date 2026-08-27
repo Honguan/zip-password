@@ -165,6 +165,18 @@ class UiModeTests(unittest.TestCase):
                 gui.quick_wordlist.set(str(wordlist))
                 gui.update()
                 self.assertTrue(gui.quick_start_button.instate(["!disabled"]))
+
+                hints = Path(temp) / "hints.txt"
+                hints.write_text(" \n\t\n", encoding="utf-8")
+                gui.candidate_source.set("提示詞組合")
+                gui.quick_combo_wordlist.set(str(hints))
+                gui.update()
+                self.assertTrue(gui.quick_start_button.instate(["disabled"]))
+                self.assertIn("提示詞", gui.quick_status.get())
+
+                hints.write_text("secret\n", encoding="utf-8")
+                gui._refresh_task_summary()
+                self.assertTrue(gui.quick_start_button.instate(["!disabled"]))
             finally:
                 self.destroy_gui(gui)
 
