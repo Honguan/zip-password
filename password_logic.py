@@ -20,8 +20,18 @@ HASHCAT_PREFIX_MODES = [
     ("$office$*2007*", "9400 - MS Office 2007"),
     ("$office$*2010*", "9500 - MS Office 2010"),
     ("$office$*2013*", "9600 - MS Office 2013"),
-    ("$pdf$*", "10500 - PDF 1.4-1.6"),
 ]
+PDF_HASHCAT_MODES = {
+    ("1", "2", "40"): "10400 - PDF 1.1-1.3",
+    ("2", "2", "40"): "10400 - PDF 1.1-1.3",
+    ("1", "3", "40"): "10510 - PDF 1.3-1.6 RC4-40",
+    ("2", "3", "40"): "10510 - PDF 1.3-1.6 RC4-40",
+    ("4", "4", "40"): "10510 - PDF 1.3-1.6 RC4-40",
+    ("2", "3", "128"): "10500 - PDF 1.4-1.6",
+    ("4", "4", "128"): "10500 - PDF 1.4-1.6",
+    ("5", "5", "256"): "10600 - PDF 1.7 Level 3",
+    ("5", "6", "256"): "10700 - PDF 1.7 Level 8",
+}
 
 
 def config_bool(value: str | bool | None, default: bool = True) -> bool:
@@ -62,6 +72,13 @@ def detect_hashcat_mode(hash_text: str) -> str:
     lines = [line.strip() for line in hash_text.splitlines() if line.strip()]
     for line in lines:
         lower = line.lower()
+        if lower.startswith("$pdf$"):
+            match = re.match(r"^\$pdf\$(\d+)\*(\d+)\*(\d+)\*", lower)
+            if not match:
+                return ""
+            if match.groups() in {("2", "3", "128"), ("4", "4", "128")} and lower.count("*") == 11:
+                return "25400 - PDF 1.4-1.6 user/owner"
+            return PDF_HASHCAT_MODES.get(match.groups(), "")
         for pattern, mode_label in HASHCAT_PREFIX_MODES:
             if fnmatch.fnmatch(lower, pattern.lower()):
                 return mode_label
