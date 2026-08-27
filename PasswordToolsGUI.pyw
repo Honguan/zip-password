@@ -48,13 +48,10 @@ TOOL_TMP_DIR = TOOLS_DIR / "tmp"
 WORDLISTS_DIR = TOOLS_DIR / "wordlists"
 CONFIG_PATH = APP_DIR / "password_gui_config.json"
 LEGACY_CONFIG_NAMES = [
-    "password_gui_config.json",
     "密碼工具GUI_config.json",
     "密碼工具GUI設定.json",
     "PasswordToolsGUI_config.json",
     "password_tools_gui_config.json",
-    "settings.json",
-    "config.json",
 ]
 RESULTS_DIR = APP_DIR / "密碼工具GUI_輸出"
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
@@ -314,19 +311,7 @@ def default_config() -> dict[str, str]:
 
 
 def config_search_paths() -> list[Path]:
-    roots = [APP_DIR, Path.cwd()]
-    if not getattr(sys, "frozen", False):
-        roots.append(Path(__file__).resolve().parent)
-    paths: list[Path] = []
-    seen: set[str] = set()
-    for root in roots:
-        for name in LEGACY_CONFIG_NAMES:
-            path = root / name
-            key = str(path.resolve() if path.exists() else path)
-            if key not in seen:
-                seen.add(key)
-                paths.append(path)
-    return paths
+    return [CONFIG_PATH, *(APP_DIR / name for name in LEGACY_CONFIG_NAMES)]
 
 
 def read_config_file(path: Path) -> dict[str, str]:
@@ -336,7 +321,7 @@ def read_config_file(path: Path) -> dict[str, str]:
     return {str(k): str(v) for k, v in data.items()}
 
 
-def load_config() -> tuple[dict[str, str], str]:
+def load_config() -> tuple[dict[str, str], str, Path | None]:
     cfg = default_config()
     saved: dict[str, str] = {}
     loaded_path = next((path for path in config_search_paths() if path.exists()), None)
@@ -347,7 +332,7 @@ def load_config() -> tuple[dict[str, str], str]:
             cfg = merge_config(cfg, data)
         except Exception as exc:
             error = f"{loaded_path}：{type(exc).__name__}: {exc}"
-            return cfg, error
+            return cfg, error, loaded_path
     detected = find_tool_paths(saved)
     for key, value in detected.items():
         if value:
@@ -357,7 +342,7 @@ def load_config() -> tuple[dict[str, str], str]:
             save_config(cfg)
         except Exception:
             pass
-    return cfg, ""
+    return cfg, "", loaded_path
 
 
 def save_config(cfg: dict[str, str]) -> None:
@@ -931,7 +916,7 @@ class PasswordToolGUI(tk.Tk):
         self.title("密碼工具 GUI")
         self.geometry("1400x900")
         self.minsize(1100, 720)
-        self.config_data, self.config_load_error = load_config()
+        self.config_data, self.config_load_error, self.config_load_source = load_config()
         self.log_queue: queue.Queue[str] = queue.Queue(maxsize=UI_QUEUE_LIMIT)
         self.status_queue: queue.Queue[str] = queue.Queue(maxsize=UI_QUEUE_LIMIT)
         self.ui_queue: queue.Queue[object] = queue.Queue()
@@ -947,6 +932,8 @@ class PasswordToolGUI(tk.Tk):
         self._build_ui()
         if self.config_load_error:
             self.after(0, self._show_config_load_error)
+        elif self.config_load_source and self.config_load_source != CONFIG_PATH:
+            self.after(0, self._show_config_migration)
         self.refresh_converters()
         self.after(80, self._drain_queues)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -1920,6 +1907,12 @@ class PasswordToolGUI(tk.Tk):
             "設定載入失敗",
             f"{summary}\n\n原因：{self.config_load_error}\n\n只有按下「儲存設定」後才會覆寫設定檔。",
         )
+
+    def _show_config_migration(self) -> None:
+        summary = f"舊設定已從 {self.config_load_source} 遷移至 {CONFIG_PATH}。"
+        self.quick_status.set(summary)
+        self.set_status("舊設定遷移完成")
+        messagebox.showinfo("設定遷移完成", summary)
 
     def open_output_folder(self) -> None:
         out_dir = Path(self.config_data.get("output_dir", str(RESULTS_DIR)) or RESULTS_DIR)
