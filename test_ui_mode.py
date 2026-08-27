@@ -83,6 +83,28 @@ class UiModeTests(unittest.TestCase):
     def test_tools_directory_is_not_an_editable_setting(self):
         self.assertFalse(hasattr(APP.default_config(), "tools_dir"))
 
+    def test_tool_detection_sync_preserves_current_job_inputs(self):
+        gui = object.__new__(APP.PasswordToolGUI)
+        gui.setting_vars = {}
+        gui.config_data = APP.AppConfig(
+            default_wordlist=Path("configured.txt"),
+            attack_strategy=APP.AttackStrategy.AUTO,
+        )
+        gui.quick_wordlist = FakeValue()
+        gui.quick_wordlist.value = "current.txt"
+        gui.quick_combo_wordlist = FakeValue()
+        gui.quick_combo_key = FakeValue()
+        gui.candidate_source = FakeValue()
+        gui.candidate_source.value = "自訂字典"
+        gui.quick_strategy = FakeValue()
+        gui.hashcat_wordlist = FakeValue()
+        gui.john_wordlist = FakeValue()
+
+        gui.sync_config_to_ui(sync_task_inputs=False)
+
+        self.assertEqual(gui.quick_wordlist.value, "current.txt")
+        self.assertEqual(gui.candidate_source.value, "自訂字典")
+
     def test_advanced_settings_replace_the_main_workspace(self):
         gui = object.__new__(APP.PasswordToolGUI)
         gui.advanced_toggle = FakeButton()
