@@ -26,6 +26,18 @@ class AutoStagesTests(TestCase):
         gui.start_auto_command = Mock()
         return gui
 
+    def make_finalize_gui(self):
+        gui = object.__new__(APP.PasswordToolGUI)
+        gui.config_data = {
+            "hashcat_path": "hashcat.exe",
+            "john_path": "john.exe",
+            "john_run_dir": "",
+        }
+        gui.quick_status = Value()
+        gui.log = Mock()
+        gui.set_cracked_passwords = Mock()
+        return gui
+
     def stages(self, cracked):
         return [
             {
@@ -133,6 +145,46 @@ class AutoStagesTests(TestCase):
             result = APP.count_text_lines(wordlist)
 
         self.assertEqual(result, "100,000 筆")
+
+    def test_failed_show_does_not_modify_cracked_result(self):
+        for engine in ("hashcat", "john"):
+            with self.subTest(engine=engine), TemporaryDirectory() as temp:
+                cracked = Path(temp) / "cracked.txt"
+                cracked.write_text("existing\n", encoding="utf-8")
+                gui = self.make_finalize_gui()
+                result = Mock(returncode=2, stdout=b"", stderr=b"fatal: fake-password\n")
+
+                with patch.object(APP.subprocess, "run", return_value=result):
+                    gui.finalize_auto_cracked(engine, Path("hash.txt"), "0 - MD5", cracked)
+
+                self.assertEqual(cracked.read_text(encoding="utf-8"), "existing\n")
+                self.assertIn("讀取失敗", gui.quick_status.value)
+                gui.set_cracked_passwords.assert_not_called()
+
+    def test_successful_show_never_parses_stderr(self):
+        with TemporaryDirectory() as temp:
+            cracked = Path(temp) / "cracked.txt"
+            gui = self.make_finalize_gui()
+            result = Mock(returncode=0, stdout=b"", stderr=b"warning: fake-password\n")
+
+            with patch.object(APP.subprocess, "run", return_value=result):
+                gui.finalize_auto_cracked("hashcat", Path("hash.txt"), "0 - MD5", cracked)
+
+            self.assertFalse(cracked.exists())
+            self.assertEqual(gui.quick_status.value, "尚未破解出密碼。")
+            self.assertIn("warning: fake-password", gui.log.call_args_list[0].args[0])
+
+    def test_successful_show_parses_stdout(self):
+        with TemporaryDirectory() as temp:
+            cracked = Path(temp) / "cracked.txt"
+            gui = self.make_finalize_gui()
+            result = Mock(returncode=0, stdout=b"hash:secret\n", stderr=b"")
+
+            with patch.object(APP.subprocess, "run", return_value=result):
+                gui.finalize_auto_cracked("hashcat", Path("hash.txt"), "0 - MD5", cracked)
+
+            self.assertEqual(cracked.read_text(encoding="utf-8"), "secret\n")
+            gui.set_cracked_passwords.assert_called_once_with(["secret"], cracked)
 
 
 if __name__ == "__main__":

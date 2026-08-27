@@ -2364,7 +2364,14 @@ class PasswordToolGUI(tk.Tk):
                 cwd = self.config_data.get("john_run_dir") or None
             creationflags, startupinfo = hidden_startup()
             proc = subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=creationflags, startupinfo=startupinfo, timeout=60)
-            shown = clean_output(decode_bytes(proc.stdout + proc.stderr))
+            shown = clean_output(decode_bytes(proc.stdout))
+            stderr = clean_output(decode_bytes(proc.stderr))
+            if stderr:
+                self.log(f"\n[破解結果訊息]\n{stderr}\n")
+            if proc.returncode != 0:
+                self.quick_status.set(f"破解結果讀取失敗（結束代碼 {proc.returncode}）。")
+                self.log(f"\n[破解結果錯誤] --show 結束代碼 {proc.returncode}\n")
+                return
             passwords = extract_passwords_from_show(shown, engine)
             if passwords:
                 existing = cracked.read_text(encoding="utf-8", errors="replace").splitlines() if cracked.exists() else []
@@ -2382,6 +2389,7 @@ class PasswordToolGUI(tk.Tk):
                 self.set_cracked_passwords([], cracked)
                 self.quick_status.set("尚未破解出密碼。")
         except Exception as exc:
+            self.quick_status.set("破解結果讀取失敗。")
             self.log(f"\n[輸出密碼錯誤] {exc}\n")
 
     def converter_for_input(self, input_path: Path) -> str:
