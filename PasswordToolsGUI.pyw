@@ -33,11 +33,17 @@ from password_logic import (
     build_auto_hashcat_command,
     build_auto_john_command,
     config_bool,
+    converter_names,
+    converter_runtime,
     detect_hashcat_mode,
     extract_passwords_from_show,
+    format_for_extension,
+    hashcat_mode_labels,
     merge_config,
     prepare_hash_output,
     source_identity,
+    supported_file_pattern,
+    supported_format_summary,
 )
 
 
@@ -109,70 +115,7 @@ UI_QUEUE_LIMIT = 2_000
 UI_QUEUE_ITEMS_PER_TICK = 100
 UI_LOG_MAX_LINES = 5_000
 SESSION_LOG_BUFFER_SIZE = 64 * 1024
-ARCHIVE_CONVERTER_MAP = {
-    ".zip": "zip2john.exe",
-    ".zipx": "zip2john.exe",
-    ".jar": "zip2john.exe",
-    ".apk": "zip2john.exe",
-    ".epub": "zip2john.exe",
-    ".rar": "rar2john.exe",
-    ".7z": "7z2john.pl",
-    ".pdf": "pdf2john.pl",
-    ".doc": "office2john.py",
-    ".docx": "office2john.py",
-    ".xls": "office2john.py",
-    ".xlsx": "office2john.py",
-    ".ppt": "office2john.py",
-    ".pptx": "office2john.py",
-    ".pps": "office2john.py",
-    ".ppsx": "office2john.py",
-    ".odt": "libreoffice2john.py",
-    ".ods": "libreoffice2john.py",
-    ".odp": "libreoffice2john.py",
-    ".dmg": "dmg2john.exe",
-    ".gpg": "gpg2john.exe",
-    ".kdbx": "keepass2john.exe",
-    ".pfx": "pfx2john.py",
-    ".p12": "pfx2john.py",
-    ".pem": "pem2john.py",
-    ".key": "ssh2john.py",
-    ".vhd": "bitlocker2john.exe",
-    ".vhdx": "bitlocker2john.exe",
-    ".hc": "truecrypt2john.py",
-    ".tc": "truecrypt2john.py",
-}
-
-HASHCAT_MODES = [
-    "0 - MD5",
-    "100 - SHA1",
-    "1400 - SHA2-256",
-    "1700 - SHA2-512",
-    "1000 - NTLM",
-    "3000 - LM",
-    "3200 - bcrypt",
-    "5500 - NetNTLMv1",
-    "5600 - NetNTLMv2",
-    "9400 - MS Office 2007",
-    "9500 - MS Office 2010",
-    "9600 - MS Office 2013",
-    "10400 - PDF 1.1-1.3",
-    "10500 - PDF 1.4-1.6",
-    "10510 - PDF 1.3-1.6 RC4-40",
-    "10600 - PDF 1.7 Level 3",
-    "10700 - PDF 1.7 Level 8",
-    "11600 - 7-Zip",
-    "12500 - RAR3-hp",
-    "13000 - RAR5",
-    "13600 - WinZip",
-    "17200 - PKZIP",
-    "17220 - PKZIP Multi-File",
-    "17225 - PKZIP Mixed Multi-File",
-    "17230 - PKZIP Mixed",
-    "23001 - SecureZIP AES-128",
-    "23002 - SecureZIP AES-192",
-    "23003 - SecureZIP AES-256",
-    "25400 - PDF 1.4-1.6 user/owner",
-]
+HASHCAT_MODES = hashcat_mode_labels()
 
 HASHCAT_ATTACKS = [
     "0 - 字典 / Straight",
@@ -1063,7 +1006,9 @@ class PasswordToolGUI(tk.Tk):
 
         parent.columnconfigure(0, weight=1)
         ttk.Label(parent, text="開始新工作", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(parent, text="支援壓縮包、Office、PDF 與常見雜湊檔。", style="Muted.TLabel", wraplength=330).grid(row=1, column=0, sticky="w", pady=(4, 12))
+        ttk.Label(
+            parent, text=f"支援 {supported_format_summary()}。", style="Muted.TLabel", wraplength=330
+        ).grid(row=1, column=0, sticky="w", pady=(4, 12))
 
         ttk.Label(parent, text="1  選擇目標檔案", style="PanelHeader.TLabel").grid(row=2, column=0, sticky="w")
         file_box = ttk.Frame(parent, style="Panel.TFrame")
@@ -1115,7 +1060,7 @@ class PasswordToolGUI(tk.Tk):
         ttk.Label(status_box, textvariable=self.quick_status, style="Soft.TLabel", wraplength=340).grid(row=0, column=0, sticky="w")
 
     def _browse_quick_file(self) -> None:
-        path = filedialog.askopenfilename(filetypes=[("支援檔案", "*.zip *.zipx *.rar *.7z *.pdf *.doc *.docx *.xls *.xlsx *.ppt *.pptx *.odt *.ods *.odp *.hash *.txt"), ("所有檔案", "*.*")])
+        path = filedialog.askopenfilename(filetypes=[("支援檔案", supported_file_pattern()), ("所有檔案", "*.*")])
         if path:
             self.quick_input.set(path)
 
@@ -1503,11 +1448,7 @@ class PasswordToolGUI(tk.Tk):
 
     def refresh_converters(self) -> None:
         run_dir = Path(self.config_data.get("john_run_dir", ""))
-        names: list[str] = []
-        if run_dir.exists():
-            for path in sorted(run_dir.glob("*2john.*")):
-                if path.is_file():
-                    names.append(path.name)
+        names = [name for name in converter_names() if (run_dir / name).is_file()]
         self.converter_names = names
         values = ["自動偵測"] + names
         if hasattr(self, "converter_combo"):
@@ -2223,19 +2164,20 @@ class PasswordToolGUI(tk.Tk):
                 self.enqueue_status(message)
                 self.enqueue_ui(lambda: self.quick_status.set(message))
                 return
-            unknown_pdf_mode = not mode_label and any(
-                line.strip().lower().startswith("$pdf$") for line in hashcat_text.splitlines()
-            )
             if mode_label and self.config_data.get("hashcat_path") and Path(self.config_data["hashcat_path"]).exists():
                 stages = self.build_auto_attack_stages(src, paths, "hashcat", paths["hashcat_hash"], mode_label, wordlist, settings)
                 self.enqueue_ui(lambda: self.start_auto_stages(stages, 0))
             elif self.config_data.get("john_path") and Path(self.config_data["john_path"]).exists():
-                if unknown_pdf_mode:
-                    self.enqueue_log("\n[自動流程] 無法安全判定 PDF 的 Hashcat 模式，改用 John。\n")
+                if detection.preferred_engine == "john" and detection.format_name:
+                    self.enqueue_log(
+                        f"\n[自動流程] 無法安全判定 {detection.format_name} 的 Hashcat 模式，改用 John。\n"
+                    )
                 stages = self.build_auto_attack_stages(src, paths, "john", paths["john_hash"], "", wordlist, settings)
                 self.enqueue_ui(lambda: self.start_auto_stages(stages, 0))
-            elif unknown_pdf_mode:
-                raise RuntimeError("無法安全判定 PDF 的 Hashcat 模式；請設定 John 或在進階工具手動選擇模式。")
+            elif detection.preferred_engine == "john" and detection.format_name:
+                raise RuntimeError(
+                    f"無法安全判定 {detection.format_name} 的 Hashcat 模式；請設定 John 或在進階工具手動選擇模式。"
+                )
             else:
                 raise SetupError("找不到可用的 hashcat 或 John。", HASHCAT_DOWNLOAD_PAGE)
         except InterruptedError as exc:
@@ -2467,32 +2409,28 @@ class PasswordToolGUI(tk.Tk):
         chosen = self.extract_converter.get()
         if chosen and chosen != "自動偵測":
             return chosen
-        return ARCHIVE_CONVERTER_MAP.get(input_path.suffix.lower(), "")
+        spec = format_for_extension(input_path.suffix)
+        return spec.converter if spec else ""
 
     def converter_command(self, converter_name: str, input_path: Path) -> list[str]:
         run_dir = Path(self.config_data.get("john_run_dir", ""))
         converter_path = run_dir / converter_name
         if not converter_path.exists():
             raise FileNotFoundError(f"找不到轉換器：{converter_path}")
-        suffix = converter_path.suffix.lower()
-        if suffix == ".exe":
+        runtime = converter_runtime(converter_name)
+        if runtime is None:
+            raise ValueError(f"不支援的轉換器：{converter_name}")
+        if not runtime:
             return [str(converter_path), str(input_path)]
-        if suffix == ".py":
-            python_path = self.config_data.get("python_path", "")
-            if not python_path or not Path(python_path).exists():
+        runtime_path = self.config_data.get(runtime, "")
+        if not runtime_path or not Path(runtime_path).exists():
+            if runtime == "python_path":
                 raise SetupError("未設定可用的 python.exe，無法執行 .py 轉換器。", PYTHON_DOWNLOAD_PAGE)
-            return [python_path, str(converter_path), str(input_path)]
-        if suffix == ".pl":
-            perl_path = self.config_data.get("perl_path", "")
-            if not perl_path or not Path(perl_path).exists():
+            if runtime == "perl_path":
                 raise SetupError("未設定可用的 perl.exe，無法執行 .pl 轉換器。", PERL_DOWNLOAD_PAGE)
-            return [perl_path, str(converter_path), str(input_path)]
-        if suffix == ".js":
-            node_path = self.config_data.get("node_path", "")
-            if not node_path or not Path(node_path).exists():
+            if runtime == "node_path":
                 raise SetupError("未設定可用的 node.exe，無法執行 .js 轉換器。", NODE_DOWNLOAD_PAGE)
-            return [node_path, str(converter_path), str(input_path)]
-        return [str(converter_path), str(input_path)]
+        return [runtime_path, str(converter_path), str(input_path)]
 
     def safe_converter_input(self, original: Path, temp_dir: Path) -> Path:
         safe_name = "input" + original.suffix.lower()

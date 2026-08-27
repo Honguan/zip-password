@@ -5,6 +5,7 @@ import fnmatch
 import hashlib
 import re
 from pathlib import Path
+from typing import Callable
 
 
 AUTO_MASKS = [
@@ -13,16 +14,6 @@ AUTO_MASKS = [
 ]
 HASHCAT_DEFAULT_MASK = "?a?a?a?a?a?a"
 JOHN_DEFAULT_MASK = "?a?a?a?a?a?a"
-HASHCAT_PREFIX_MODES = [
-    ("$zip2$*", "13600 - WinZip"),
-    ("$pkzip2$*", "17200 - PKZIP"),
-    ("$rar5$*", "13000 - RAR5"),
-    ("$rar3$*", "12500 - RAR3-hp"),
-    ("$7z$*", "11600 - 7-Zip"),
-    ("$office$*2007*", "9400 - MS Office 2007"),
-    ("$office$*2010*", "9500 - MS Office 2010"),
-    ("$office$*2013*", "9600 - MS Office 2013"),
-]
 PDF_HASHCAT_MODES = {
     ("1", "2", "40"): "10400 - PDF 1.1-1.3",
     ("2", "2", "40"): "10400 - PDF 1.1-1.3",
@@ -41,6 +32,127 @@ class HashModeDetection:
     status: str
     mode: str = ""
     candidates: tuple[str, ...] = ()
+    format_name: str = ""
+    preferred_engine: str = ""
+
+
+HashDetector = Callable[[str], HashModeDetection | None]
+
+
+@dataclass(frozen=True)
+class FormatSpec:
+    name: str
+    extensions: tuple[str, ...]
+    converter: str = ""
+    runtime: str = ""
+    preferred_engine: str = "john"
+    hashcat_modes: tuple[str, ...] = ()
+    hash_prefix_modes: tuple[tuple[str, str], ...] = ()
+    detector: HashDetector | None = None
+
+
+def _detect_pdf(line: str) -> HashModeDetection | None:
+    lower = line.lower()
+    if not lower.startswith("$pdf$"):
+        return None
+    match = re.match(r"^\$pdf\$(\d+)\*(\d+)\*(\d+)\*", lower)
+    if not match:
+        return HashModeDetection("unsupported", format_name="PDF", preferred_engine="john")
+    if match.groups() in {("2", "3", "128"), ("4", "4", "128")} and lower.count("*") == 11:
+        return HashModeDetection(
+            "detected", "25400 - PDF 1.4-1.6 user/owner", format_name="PDF", preferred_engine="hashcat"
+        )
+    mode = PDF_HASHCAT_MODES.get(match.groups(), "")
+    if mode:
+        return HashModeDetection("detected", mode, format_name="PDF", preferred_engine="hashcat")
+    return HashModeDetection("unsupported", format_name="PDF", preferred_engine="john")
+
+
+def _detect_raw_hash(line: str) -> HashModeDetection | None:
+    if re.fullmatch(r"[0-9a-fA-F]{32}", line):
+        return HashModeDetection(
+            "ambiguous", candidates=("0 - MD5", "1000 - NTLM"), format_name="原始雜湊", preferred_engine="hashcat"
+        )
+    if re.fullmatch(r"[0-9a-fA-F]{40}", line):
+        return HashModeDetection("detected", "100 - SHA1", format_name="原始雜湊", preferred_engine="hashcat")
+    if re.fullmatch(r"[0-9a-fA-F]{64}", line):
+        return HashModeDetection(
+            "ambiguous", candidates=("1400 - SHA2-256", "其他 64-hex 模式"), format_name="原始雜湊", preferred_engine="hashcat"
+        )
+    if re.fullmatch(r"[0-9a-fA-F]{128}", line):
+        return HashModeDetection(
+            "ambiguous", candidates=("1700 - SHA2-512", "其他 128-hex 模式"), format_name="原始雜湊", preferred_engine="hashcat"
+        )
+    return None
+
+
+FORMAT_REGISTRY = (
+    FormatSpec(
+        "ZIP", (".zip", ".zipx", ".jar", ".apk", ".epub"), "zip2john.exe", preferred_engine="hashcat",
+        hashcat_modes=(
+            "13600 - WinZip", "17200 - PKZIP", "17220 - PKZIP Multi-File", "17225 - PKZIP Mixed Multi-File",
+            "17230 - PKZIP Mixed", "23001 - SecureZIP AES-128", "23002 - SecureZIP AES-192", "23003 - SecureZIP AES-256",
+        ),
+        hash_prefix_modes=(("$zip2$*", "13600 - WinZip"), ("$pkzip2$*", "17200 - PKZIP")),
+    ),
+    FormatSpec(
+        "RAR", (".rar",), "rar2john.exe", preferred_engine="hashcat",
+        hashcat_modes=("12500 - RAR3-hp", "13000 - RAR5"),
+        hash_prefix_modes=(("$rar5$*", "13000 - RAR5"), ("$rar3$*", "12500 - RAR3-hp")),
+    ),
+    FormatSpec(
+        "7-Zip", (".7z",), "7z2john.pl", "perl_path", "hashcat", ("11600 - 7-Zip",),
+        (("$7z$*", "11600 - 7-Zip"),),
+    ),
+    FormatSpec(
+        "PDF", (".pdf",), "pdf2john.pl", "perl_path", "hashcat",
+        tuple(dict.fromkeys((*PDF_HASHCAT_MODES.values(), "25400 - PDF 1.4-1.6 user/owner"))), detector=_detect_pdf,
+    ),
+    FormatSpec(
+        "Office", (".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".pps", ".ppsx"),
+        "office2john.py", "python_path", "hashcat", ("9400 - MS Office 2007", "9500 - MS Office 2010", "9600 - MS Office 2013"),
+        (("$office$*2007*", "9400 - MS Office 2007"), ("$office$*2010*", "9500 - MS Office 2010"), ("$office$*2013*", "9600 - MS Office 2013")),
+    ),
+    FormatSpec("OpenDocument", (".odt", ".ods", ".odp"), "libreoffice2john.py", "python_path"),
+    FormatSpec("DMG", (".dmg",), "dmg2john.exe"),
+    FormatSpec("GPG", (".gpg",), "gpg2john.exe"),
+    FormatSpec("KeePass", (".kdbx",), "keepass2john.exe"),
+    FormatSpec("PKCS#12", (".pfx", ".p12"), "pfx2john.py", "python_path"),
+    FormatSpec("PEM", (".pem",), "pem2john.py", "python_path"),
+    FormatSpec("SSH Key", (".key",), "ssh2john.py", "python_path"),
+    FormatSpec("BitLocker", (".vhd", ".vhdx"), "bitlocker2john.exe"),
+    FormatSpec("TrueCrypt", (".hc", ".tc"), "truecrypt2john.py", "python_path"),
+    FormatSpec(
+        "原始雜湊", (".hash", ".txt"), preferred_engine="hashcat",
+        hashcat_modes=("0 - MD5", "100 - SHA1", "1400 - SHA2-256", "1700 - SHA2-512", "1000 - NTLM", "3000 - LM", "3200 - bcrypt", "5500 - NetNTLMv1", "5600 - NetNTLMv2"),
+        detector=_detect_raw_hash,
+    ),
+)
+
+
+def format_for_extension(extension: str) -> FormatSpec | None:
+    extension = extension.lower()
+    return next((spec for spec in FORMAT_REGISTRY if extension in spec.extensions), None)
+
+
+def converter_names() -> tuple[str, ...]:
+    return tuple(dict.fromkeys(spec.converter for spec in FORMAT_REGISTRY if spec.converter))
+
+
+def converter_runtime(converter: str) -> str | None:
+    return next((spec.runtime for spec in FORMAT_REGISTRY if spec.converter == converter), None)
+
+
+def hashcat_mode_labels() -> list[str]:
+    return list(dict.fromkeys(mode for spec in FORMAT_REGISTRY for mode in spec.hashcat_modes))
+
+
+def supported_file_pattern() -> str:
+    return " ".join(f"*{extension}" for spec in FORMAT_REGISTRY for extension in spec.extensions)
+
+
+def supported_format_summary() -> str:
+    return f"{len(FORMAT_REGISTRY) - 1} 類加密檔與原始雜湊"
 
 
 def source_identity(source: Path) -> str:
@@ -91,25 +203,16 @@ def detect_hashcat_mode(hash_text: str) -> HashModeDetection:
     lines = [line.strip() for line in hash_text.splitlines() if line.strip()]
     for line in lines:
         lower = line.lower()
-        if lower.startswith("$pdf$"):
-            match = re.match(r"^\$pdf\$(\d+)\*(\d+)\*(\d+)\*", lower)
-            if not match:
-                return HashModeDetection("unsupported")
-            if match.groups() in {("2", "3", "128"), ("4", "4", "128")} and lower.count("*") == 11:
-                return HashModeDetection("detected", "25400 - PDF 1.4-1.6 user/owner")
-            mode = PDF_HASHCAT_MODES.get(match.groups(), "")
-            return HashModeDetection("detected", mode) if mode else HashModeDetection("unsupported")
-        for pattern, mode_label in HASHCAT_PREFIX_MODES:
-            if fnmatch.fnmatch(lower, pattern.lower()):
-                return HashModeDetection("detected", mode_label)
-    if lines and re.fullmatch(r"[0-9a-fA-F]{32}", lines[0]):
-        return HashModeDetection("ambiguous", candidates=("0 - MD5", "1000 - NTLM"))
-    if lines and re.fullmatch(r"[0-9a-fA-F]{40}", lines[0]):
-        return HashModeDetection("detected", "100 - SHA1")
-    if lines and re.fullmatch(r"[0-9a-fA-F]{64}", lines[0]):
-        return HashModeDetection("ambiguous", candidates=("1400 - SHA2-256", "其他 64-hex 模式"))
-    if lines and re.fullmatch(r"[0-9a-fA-F]{128}", lines[0]):
-        return HashModeDetection("ambiguous", candidates=("1700 - SHA2-512", "其他 128-hex 模式"))
+        for spec in FORMAT_REGISTRY:
+            if spec.detector:
+                result = spec.detector(line)
+                if result:
+                    return result
+            for pattern, mode_label in spec.hash_prefix_modes:
+                if fnmatch.fnmatch(lower, pattern.lower()):
+                    return HashModeDetection(
+                        "detected", mode_label, format_name=spec.name, preferred_engine=spec.preferred_engine
+                    )
     return HashModeDetection("unsupported")
 
 
