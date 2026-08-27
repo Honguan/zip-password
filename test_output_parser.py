@@ -5,7 +5,11 @@ from password_gui.output_parser import (
     DashboardSnapshot,
     EngineOutputParser,
     EngineStatusChanged,
+    ModeChanged,
+    OutputFileChanged,
+    PasswordLengthChanged,
     ProgressChanged,
+    QueueChanged,
     RecoveredChanged,
     SpeedChanged,
     TemperatureChanged,
@@ -73,6 +77,26 @@ class OutputParserTests(TestCase):
 
         self.assertEqual((snapshot.status, snapshot.progress, snapshot.progress_percent), ("Running", "50.00%", 50.0))
         self.assertEqual(snapshot.speed, "1 MH/s")
+
+    def test_mode_mask_queue_and_output_file_are_structured(self):
+        snapshot = DashboardSnapshot()
+        events = EngineOutputParser("hashcat").feed(
+            "Hash.Mode.........: 0 (MD5)\n"
+            "Guess.Mask........: ?l?l?d [3]\n"
+            "Guess.Queue.......: 1/2 (50%)\n"
+            "Loaded 2 password hashes\n"
+            "已輸出密碼：sample_cracked.txt"
+        )
+        self.assertEqual(
+            [type(event) for event in events],
+            [ModeChanged, PasswordLengthChanged, QueueChanged, QueueChanged, OutputFileChanged],
+        )
+        for event in events:
+            snapshot = apply_event(snapshot, event)
+        self.assertEqual(snapshot.mode, "0 (MD5)")
+        self.assertEqual(snapshot.password_length, "3 位")
+        self.assertEqual(snapshot.queue, "已載入 2 hash")
+        self.assertEqual(snapshot.output_file, "已輸出密碼：sample_cracked.txt")
 
 
 if __name__ == "__main__":

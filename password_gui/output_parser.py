@@ -69,6 +69,26 @@ class EngineStatusChanged(JobEvent):
 
 
 @dataclass(frozen=True)
+class ModeChanged(JobEvent):
+    pass
+
+
+@dataclass(frozen=True)
+class PasswordLengthChanged(JobEvent):
+    pass
+
+
+@dataclass(frozen=True)
+class QueueChanged(JobEvent):
+    pass
+
+
+@dataclass(frozen=True)
+class OutputFileChanged(JobEvent):
+    pass
+
+
+@dataclass(frozen=True)
 class DashboardSnapshot:
     status: str = "就緒"
     progress: str = "0%"
@@ -77,6 +97,10 @@ class DashboardSnapshot:
     temperature: str = "-"
     candidate: str = "-"
     recovered: str = "-"
+    mode: str = "-"
+    password_length: str = "-"
+    queue: str = "-"
+    output_file: str = "尚未產生輸出"
 
 
 def apply_event(snapshot: DashboardSnapshot, event: JobEvent) -> DashboardSnapshot:
@@ -95,6 +119,14 @@ def apply_event(snapshot: DashboardSnapshot, event: JobEvent) -> DashboardSnapsh
         return replace(snapshot, candidate=event.value)
     if isinstance(event, RecoveredChanged):
         return replace(snapshot, recovered=event.value)
+    if isinstance(event, ModeChanged):
+        return replace(snapshot, mode=event.value)
+    if isinstance(event, PasswordLengthChanged):
+        return replace(snapshot, password_length=event.value)
+    if isinstance(event, QueueChanged):
+        return replace(snapshot, queue=event.value)
+    if isinstance(event, OutputFileChanged):
+        return replace(snapshot, output_file=event.value)
     return snapshot
 
 
@@ -107,6 +139,19 @@ _TEMPERATURE_RE = re.compile(r"Temp:\s*([0-9]+c)", re.IGNORECASE)
 _JOHN_SPEED_RE = re.compile(r"\b([0-9.]+[kmg]?[cp]?/s)\b", re.IGNORECASE)
 _JOHN_GUESS_RE = re.compile(r"(\d+)g\s+", re.IGNORECASE)
 _TRYING_RE = re.compile(r"\b(?:trying|Try)\s*:?\s*(.+)$", re.IGNORECASE)
+_MODE_RE = re.compile(r"(?:Hash|Input)\.Mode\.+:\s*(.+)", re.IGNORECASE)
+_MASK_RE = re.compile(r"Guess\.Mask\.+:\s*(.+)", re.IGNORECASE)
+_QUEUE_RE = re.compile(r"Guess\.Queue\.+:\s*(.+)", re.IGNORECASE)
+_LOADED_RE = re.compile(r"Loaded\s+(\d+)\s+password hash", re.IGNORECASE)
+
+
+def estimate_mask_length(mask: str) -> int:
+    length = 0
+    index = 0
+    while index < len(mask):
+        length += 1
+        index += 2 if mask[index] == "?" and index + 1 < len(mask) else 1
+    return length
 
 
 def short_metric(value: str, limit: int) -> str:
@@ -148,10 +193,28 @@ class EngineOutputParser:
                 events.append(ProgressChanged("100%", 100.0, "100%"))
         if any(marker in line for marker in ("[錯誤]", "[環境錯誤]", "[自動流程錯誤]")):
             events.append(EngineStatusChanged("需要處理"))
+        if "已輸出密碼：" in line or "_cracked.txt" in line:
+            events.append(OutputFileChanged(line))
 
         status = _STATUS_RE.match(line)
         if status:
             events.append(EngineStatusChanged(status.group(1).strip()))
+
+        mode = _MODE_RE.match(line)
+        if mode:
+            events.append(ModeChanged(short_metric(mode.group(1).strip(), 52)))
+        mask = _MASK_RE.match(line)
+        if mask:
+            mask_text = mask.group(1).strip()
+            explicit_length = re.search(r"\[(\d+)\]\s*$", mask_text)
+            length = int(explicit_length.group(1)) if explicit_length else estimate_mask_length(mask_text)
+            events.append(PasswordLengthChanged(f"{length} 位"))
+        queue = _QUEUE_RE.match(line)
+        if queue:
+            events.append(QueueChanged(short_metric(queue.group(1).strip(), 32)))
+        loaded = _LOADED_RE.search(line)
+        if loaded:
+            events.append(QueueChanged(f"已載入 {loaded.group(1)} hash"))
 
         if self._allows("hashcat"):
             candidate = _CANDIDATES_RE.match(line)

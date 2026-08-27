@@ -83,6 +83,24 @@ class UiModeTests(unittest.TestCase):
     def test_tools_directory_is_not_an_editable_setting(self):
         self.assertFalse(hasattr(APP.default_config(), "tools_dir"))
 
+    def test_structured_output_snapshot_renders_extended_metrics(self):
+        gui = object.__new__(APP.PasswordToolGUI)
+        for name in (
+            "output_status_var", "output_progress_var", "progress_value", "output_speed_var",
+            "output_temp_var", "output_candidate_var", "output_recovered_var", "output_mode_var",
+            "output_length_var", "output_queue_var", "output_file_var",
+        ):
+            setattr(gui, name, FakeValue())
+
+        gui.render_output_snapshot(
+            APP.DashboardSnapshot(mode="MD5", password_length="8 位", queue="1/2", output_file="result.txt")
+        )
+
+        self.assertEqual(gui.output_mode_var.value, "MD5")
+        self.assertEqual(gui.output_length_var.value, "8 位")
+        self.assertEqual(gui.output_queue_var.value, "1/2")
+        self.assertEqual(gui.output_file_var.value, "result.txt")
+
     def test_tool_detection_sync_preserves_current_job_inputs(self):
         gui = object.__new__(APP.PasswordToolGUI)
         gui.setting_vars = {}
