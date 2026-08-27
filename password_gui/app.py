@@ -317,6 +317,7 @@ class PasswordToolGUI(tk.Tk):
         self.output_snapshot = DashboardSnapshot()
         self.extract_thread: threading.Thread | None = None
         self.auto_thread: threading.Thread | None = None
+        self.capture_thread: threading.Thread | None = None
         self.conversion_cancel = threading.Event()
         self.converter_names: list[str] = []
         self.setting_vars: dict[str, tk.StringVar] = {}
@@ -1784,10 +1785,17 @@ class PasswordToolGUI(tk.Tk):
         except Exception:
             pass
         def finish(code: int, cancelled: bool) -> None:
-            if not cancelled:
-                self.finalize_auto_cracked(engine, hash_file, mode_label, cracked)
-            if on_finish:
-                on_finish(code, cancelled)
+            if cancelled:
+                if on_finish:
+                    on_finish(code, True)
+                return
+            self.finalize_auto_cracked(
+                engine,
+                hash_file,
+                mode_label,
+                cracked,
+                (lambda: on_finish(code, False)) if on_finish else None,
+            )
 
         started = self.runner.start(
             name,
@@ -1801,7 +1809,35 @@ class PasswordToolGUI(tk.Tk):
             self.output_status_var.set("失敗")
             self.refresh_output_overview()
 
-    def finalize_auto_cracked(self, engine: str, hash_file: Path, mode_label: str, cracked: Path) -> None:
+    def _start_capture_task(self, operation, on_success, on_error) -> bool:
+        capture_thread = self.__dict__.get("capture_thread")
+        if capture_thread and capture_thread.is_alive():
+            messagebox.showwarning("已有工作執行中", "請先停止或等待目前工作完成。")
+            return False
+        self.conversion_cancel.clear()
+
+        def worker() -> None:
+            try:
+                if self.conversion_cancel.is_set():
+                    raise InterruptedError("背景擷取工作已停止")
+                result = operation()
+            except Exception as exc:
+                self.enqueue_ui(lambda exc=exc: on_error(exc))
+            else:
+                self.enqueue_ui(lambda result=result: on_success(result))
+
+        self.capture_thread = threading.Thread(target=worker, daemon=True)
+        self.capture_thread.start()
+        return True
+
+    def finalize_auto_cracked(
+        self,
+        engine: str,
+        hash_file: Path,
+        mode_label: str,
+        cracked: Path,
+        on_complete=None,
+    ) -> None:
         try:
             if engine == "hashcat":
                 cmd = [
@@ -1812,8 +1848,20 @@ class PasswordToolGUI(tk.Tk):
             else:
                 cmd = [str(self.config_data.john_path), "--show", str(hash_file)]
                 cwd = str(self.config_data.john_run_dir) if self.config_data.john_run_dir else None
-            creationflags, startupinfo = hidden_startup()
-            proc = subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=creationflags, startupinfo=startupinfo, timeout=60)
+            started = self._start_capture_task(
+                lambda: self.runner.capture("讀取破解結果", cmd, cwd=cwd, timeout=60),
+                lambda proc: self._apply_auto_cracked_result(engine, cracked, proc, on_complete),
+                lambda exc: self._handle_auto_cracked_error(exc, on_complete),
+            )
+            if not started:
+                self._handle_auto_cracked_error(RuntimeError("已有背景擷取工作執行中"), on_complete)
+        except Exception as exc:
+            self._handle_auto_cracked_error(exc, on_complete)
+
+    def _apply_auto_cracked_result(
+        self, engine: str, cracked: Path, proc: subprocess.CompletedProcess[bytes], on_complete=None
+    ) -> None:
+        try:
             shown = clean_output(decode_bytes(proc.stdout))
             stderr = clean_output(decode_bytes(proc.stderr))
             if stderr:
@@ -1821,26 +1869,34 @@ class PasswordToolGUI(tk.Tk):
             if proc.returncode != 0:
                 self.quick_status.set(f"破解結果讀取失敗（結束代碼 {proc.returncode}）。")
                 self.log(f"\n[破解結果錯誤] --show 結束代碼 {proc.returncode}\n")
-                return
-            passwords = extract_passwords_from_show(shown, engine, plaintext_only=engine == "hashcat")
-            if passwords:
-                existing = cracked.read_text(encoding="utf-8", errors="replace").splitlines() if cracked.exists() else []
-                merged = list(dict.fromkeys([line for line in existing + passwords if line.strip()]))
-                cracked.write_text("\n".join(merged) + "\n", encoding="utf-8", newline="\n")
-                self.set_cracked_passwords(merged, cracked)
-                self.log(f"\n已輸出密碼：{cracked}\n")
-                self.quick_status.set(f"已輸出密碼：{cracked.name}")
-            elif cracked.exists() and cracked.read_text(encoding="utf-8", errors="replace").strip():
-                existing = cracked.read_text(encoding="utf-8", errors="replace").splitlines()
-                self.set_cracked_passwords(existing, cracked)
-                self.log(f"\n已輸出密碼：{cracked}\n")
-                self.quick_status.set(f"已輸出密碼：{cracked.name}")
             else:
-                self.set_cracked_passwords([], cracked)
-                self.quick_status.set("尚未破解出密碼。")
+                passwords = extract_passwords_from_show(shown, engine, plaintext_only=engine == "hashcat")
+                if passwords:
+                    existing = cracked.read_text(encoding="utf-8", errors="replace").splitlines() if cracked.exists() else []
+                    merged = list(dict.fromkeys([line for line in existing + passwords if line.strip()]))
+                    cracked.write_text("\n".join(merged) + "\n", encoding="utf-8", newline="\n")
+                    self.set_cracked_passwords(merged, cracked)
+                    self.log(f"\n已輸出密碼：{cracked}\n")
+                    self.quick_status.set(f"已輸出密碼：{cracked.name}")
+                elif cracked.exists() and cracked.read_text(encoding="utf-8", errors="replace").strip():
+                    existing = cracked.read_text(encoding="utf-8", errors="replace").splitlines()
+                    self.set_cracked_passwords(existing, cracked)
+                    self.log(f"\n已輸出密碼：{cracked}\n")
+                    self.quick_status.set(f"已輸出密碼：{cracked.name}")
+                else:
+                    self.set_cracked_passwords([], cracked)
+                    self.quick_status.set("尚未破解出密碼。")
         except Exception as exc:
-            self.quick_status.set("破解結果讀取失敗。")
-            self.log(f"\n[輸出密碼錯誤] {exc}\n")
+            self._handle_auto_cracked_error(exc)
+        finally:
+            if on_complete:
+                on_complete()
+
+    def _handle_auto_cracked_error(self, exc: Exception, on_complete=None) -> None:
+        self.quick_status.set("破解結果讀取失敗。")
+        self.log(f"\n[輸出密碼錯誤] {exc}\n")
+        if on_complete:
+            on_complete()
 
     def converter_for_input(self, input_path: Path) -> str:
         chosen = self.extract_converter.get()
@@ -2213,22 +2269,20 @@ class PasswordToolGUI(tk.Tk):
     def load_john_formats(self) -> None:
         try:
             cmd = self.john_common_args() + ["--list=formats"]
-            creationflags, startupinfo = hidden_startup()
-            proc = subprocess.run(
-                cmd,
-                cwd=str(self.config_data.john_run_dir) if self.config_data.john_run_dir else None,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                creationflags=creationflags,
-                startupinfo=startupinfo,
-                timeout=20,
+            cwd = str(self.config_data.john_run_dir) if self.config_data.john_run_dir else None
+            self._start_capture_task(
+                lambda: self.runner.capture("載入 John formats", cmd, cwd=cwd, timeout=20),
+                self._apply_john_formats,
+                lambda exc: messagebox.showerror("載入失敗", str(exc)),
             )
-            text = clean_output(decode_bytes(proc.stdout + proc.stderr))
-            values = sorted({part.strip() for part in re.split(r"[,\s]+", text) if part.strip() and not part.startswith("-")})
-            self.john_format_combo.configure(values=values)
-            self.log("\n已載入 John formats：" + str(len(values)) + "\n")
         except Exception as exc:
             messagebox.showerror("載入失敗", str(exc))
+
+    def _apply_john_formats(self, proc: subprocess.CompletedProcess[bytes]) -> None:
+        text = clean_output(decode_bytes(proc.stdout + proc.stderr))
+        values = sorted({part.strip() for part in re.split(r"[,\s]+", text) if part.strip() and not part.startswith("-")})
+        self.john_format_combo.configure(values=values)
+        self.log("\n已載入 John formats：" + str(len(values)) + "\n")
 
     def apply_settings(self, persist: bool = False) -> None:
         for key, var in self.setting_vars.items():
@@ -2273,28 +2327,51 @@ class PasswordToolGUI(tk.Tk):
         else:
             self.log(f"\n[健康檢查] john: 未找到，下載網址 {JOHN_RELEASE_PAGE}\n")
         self.notebook.select(self.output_tab)
-        for name, cmd, cwd in tests:
-            try:
-                creationflags, startupinfo = hidden_startup()
-                proc = subprocess.run(
-                    cmd,
-                    cwd=cwd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    creationflags=creationflags,
-                    startupinfo=startupinfo,
-                    timeout=20,
-                )
-                text = clean_output(decode_bytes(proc.stdout + proc.stderr)).strip()
-                first = text.splitlines()[0] if text else f"return {proc.returncode}"
-                self.log(f"\n[健康檢查] {name}: {first}\n")
-            except Exception as exc:
-                self.log(f"\n[健康檢查] {name}: 失敗 {exc}\n")
+        if tests:
+            self._start_capture_task(
+                lambda: self._run_health_checks(tests),
+                self._apply_health_check_results,
+                lambda exc: self.log(f"\n[健康檢查] 已停止：{exc}\n"),
+            )
         if not self.config_data.perl_path:
             self.log("[健康檢查] perl: 未設定，.pl 轉換器不可用\n")
 
+    def _run_health_checks(
+        self, tests: list[tuple[str, list[str], str | None]]
+    ) -> list[tuple[str, subprocess.CompletedProcess[bytes] | None, Exception | None]]:
+        results = []
+        for name, cmd, cwd in tests:
+            if self.conversion_cancel.is_set():
+                raise InterruptedError("健康檢查已停止")
+            try:
+                results.append((name, self.runner.capture(f"健康檢查 {name}", cmd, cwd=cwd, timeout=20), None))
+            except InterruptedError:
+                raise
+            except Exception as exc:
+                results.append((name, None, exc))
+        return results
+
+    def _apply_health_check_results(
+        self, results: list[tuple[str, subprocess.CompletedProcess[bytes] | None, Exception | None]]
+    ) -> None:
+        for name, proc, error in results:
+            if error:
+                self.log(f"\n[健康檢查] {name}: 失敗 {error}\n")
+                continue
+            assert proc is not None
+            text = clean_output(decode_bytes(proc.stdout + proc.stderr)).strip()
+            first = text.splitlines()[0] if text else f"return {proc.returncode}"
+            self.log(f"\n[健康檢查] {name}: {first}\n")
+
     def stop_current_work(self) -> None:
-        workers = [thread for thread in (self.extract_thread, self.auto_thread) if thread and thread.is_alive()]
+        workers = [
+            thread for thread in (
+                self.extract_thread,
+                self.auto_thread,
+                self.__dict__.get("capture_thread"),
+            )
+            if thread and thread.is_alive()
+        ]
         if workers:
             self.conversion_cancel.set()
         if self.runner.running():
@@ -2307,7 +2384,9 @@ class PasswordToolGUI(tk.Tk):
     def _on_close(self) -> None:
         extract_running = self.extract_thread is not None and self.extract_thread.is_alive()
         auto_running = self.auto_thread is not None and self.auto_thread.is_alive()
-        if self.runner.running() or extract_running or auto_running:
+        capture_thread = self.__dict__.get("capture_thread")
+        capture_running = capture_thread is not None and capture_thread.is_alive()
+        if self.runner.running() or extract_running or auto_running or capture_running:
             if not messagebox.askyesno("仍有工作執行中", "關閉前要停止目前工作嗎？"):
                 return
             self.stop_current_work()
@@ -2317,6 +2396,8 @@ class PasswordToolGUI(tk.Tk):
                 self.extract_thread.join()
             if auto_running:
                 self.auto_thread.join()
+            if capture_running:
+                capture_thread.join()
         self.destroy()
 
 

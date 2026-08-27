@@ -79,6 +79,20 @@ class CommandRunnerTests(TestCase):
 
         runner.job_lock.release()
 
+    def test_capture_timeout_kills_process_and_releases_job(self):
+        runner = APP.CommandRunner(Mock())
+        process = Mock(returncode=-9)
+        process.communicate.side_effect = [APP.subprocess.TimeoutExpired(["tool.exe"], 20), (b"", b"")]
+
+        with patch.object(APP.subprocess, "Popen", return_value=process):
+            with self.assertRaises(APP.subprocess.TimeoutExpired):
+                runner.capture("check", ["tool.exe"], timeout=20)
+
+        process.kill.assert_called_once_with()
+        self.assertIsInstance(runner.last_result.error, APP.subprocess.TimeoutExpired)
+        self.assertTrue(runner.job_lock.acquire(blocking=False))
+        runner.job_lock.release()
+
     def test_start_reports_launch_exception_and_releases_job(self):
         app = Mock()
         notify = Mock()

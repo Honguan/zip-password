@@ -28,7 +28,15 @@ class AutoStagesTests(TestCase):
         gui.quick_status = Value()
         gui.log = Mock()
         gui.set_cracked_passwords = Mock()
+        gui.runner = Mock()
+        gui.capture_thread = None
+        gui.enqueue_ui = Mock()
+        gui.conversion_cancel = APP.threading.Event()
         return gui
+
+    def complete_capture(self, gui):
+        gui.capture_thread.join()
+        gui.enqueue_ui.call_args.args[0]()
 
     def make_start_gui(self):
         gui = object.__new__(APP.PasswordToolGUI)
@@ -198,8 +206,9 @@ class AutoStagesTests(TestCase):
                 gui = self.make_finalize_gui()
                 result = Mock(returncode=2, stdout=b"", stderr=b"fatal: fake-password\n")
 
-                with patch.object(APP.subprocess, "run", return_value=result):
-                    gui.finalize_auto_cracked(engine, Path("hash.txt"), "0 - MD5", cracked)
+                gui.runner.capture.return_value = result
+                gui.finalize_auto_cracked(engine, Path("hash.txt"), "0 - MD5", cracked)
+                self.complete_capture(gui)
 
                 self.assertEqual(cracked.read_text(encoding="utf-8"), "existing\n")
                 self.assertIn("讀取失敗", gui.quick_status.value)
@@ -211,8 +220,9 @@ class AutoStagesTests(TestCase):
             gui = self.make_finalize_gui()
             result = Mock(returncode=0, stdout=b"", stderr=b"warning: fake-password\n")
 
-            with patch.object(APP.subprocess, "run", return_value=result):
-                gui.finalize_auto_cracked("hashcat", Path("hash.txt"), "0 - MD5", cracked)
+            gui.runner.capture.return_value = result
+            gui.finalize_auto_cracked("hashcat", Path("hash.txt"), "0 - MD5", cracked)
+            self.complete_capture(gui)
 
             self.assertFalse(cracked.exists())
             self.assertEqual(gui.quick_status.value, "尚未破解出密碼。")
@@ -224,13 +234,15 @@ class AutoStagesTests(TestCase):
             gui = self.make_finalize_gui()
             result = Mock(returncode=0, stdout=b"secret\n", stderr=b"")
 
-            with patch.object(APP.subprocess, "run", return_value=result) as run:
-                gui.finalize_auto_cracked("hashcat", Path("hash.txt"), "0 - MD5", cracked)
+            gui.runner.capture.return_value = result
+            gui.finalize_auto_cracked("hashcat", Path("hash.txt"), "0 - MD5", cracked)
+            self.complete_capture(gui)
 
             self.assertEqual(cracked.read_text(encoding="utf-8"), "secret\n")
             gui.set_cracked_passwords.assert_called_once_with(["secret"], cracked)
-            self.assertIn("--outfile-format", run.call_args.args[0])
-            self.assertIn("2", run.call_args.args[0])
+            command = gui.runner.capture.call_args.args[1]
+            self.assertIn("--outfile-format", command)
+            self.assertIn("2", command)
 
     def test_hashcat_show_does_not_merge_truncated_password(self):
         with TemporaryDirectory() as temp:
@@ -239,8 +251,9 @@ class AutoStagesTests(TestCase):
             gui = self.make_finalize_gui()
             result = Mock(returncode=0, stdout=b"abc:def\n", stderr=b"")
 
-            with patch.object(APP.subprocess, "run", return_value=result):
-                gui.finalize_auto_cracked("hashcat", Path("hash.txt"), "0 - MD5", cracked)
+            gui.runner.capture.return_value = result
+            gui.finalize_auto_cracked("hashcat", Path("hash.txt"), "0 - MD5", cracked)
+            self.complete_capture(gui)
 
             self.assertEqual(cracked.read_text(encoding="utf-8"), "abc:def\n")
             gui.set_cracked_passwords.assert_called_once_with(["abc:def"], cracked)
