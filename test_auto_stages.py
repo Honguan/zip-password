@@ -97,6 +97,29 @@ class AutoStagesTests(TestCase):
         self.assertEqual(gui.start_auto_command.call_count, 1)
         self.assertIn("失敗", gui.quick_status.value)
 
+    def test_hashcat_exhausted_continues_to_next_stage(self):
+        with TemporaryDirectory() as temp:
+            gui = self.make_gui()
+            gui.start_auto_stages(self.stages(Path(temp) / "cracked.txt"), 0)
+
+            callback = gui.start_auto_command.call_args.kwargs["on_finish"]
+            callback(1, False)
+
+        self.assertEqual(gui.start_auto_command.call_count, 2)
+
+    def test_john_exit_one_does_not_use_hashcat_exhausted_rule(self):
+        with TemporaryDirectory() as temp:
+            gui = self.make_gui()
+            stages = self.stages(Path(temp) / "cracked.txt")
+            stages[0]["engine"] = "john"
+            gui.start_auto_stages(stages, 0)
+
+            callback = gui.start_auto_command.call_args.kwargs["on_finish"]
+            callback(1, False)
+
+        self.assertEqual(gui.start_auto_command.call_count, 1)
+        self.assertIn("失敗", gui.quick_status.value)
+
     def test_cancelled_stage_does_not_start_the_next_stage(self):
         with TemporaryDirectory() as temp:
             gui = self.make_gui()
