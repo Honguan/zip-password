@@ -1074,9 +1074,12 @@ class PasswordToolGUI(tk.Tk):
         ttk.Label(self.candidate_options, text="常見字典", style="Soft.TLabel").grid(row=4, column=0, sticky="w", pady=(0, 4))
         ttk.Combobox(self.candidate_options, textvariable=self.common_wordlist, values=[item[0] for item in COMMON_WORDLISTS], state="readonly").grid(row=5, column=0, sticky="ew", pady=(0, 8))
         self.common_wordlist_download_button = ttk.Button(
-            self.candidate_options, text="下載並使用常見字典", command=self.download_selected_wordlist
+            self.candidate_options, text="下載常見字典", command=self.download_selected_wordlist
         )
         self.common_wordlist_download_button.grid(row=6, column=0, sticky="ew")
+        ttk.Button(
+            self.candidate_options, text="使用所選常見字典", command=self.use_selected_common_wordlist
+        ).grid(row=7, column=0, sticky="ew", pady=(8, 0))
         self.set_candidate_options_visible(False)
 
         ttk.Label(parent, text="3  執行策略", style="PanelHeader.TLabel").grid(row=9, column=0, sticky="w")
@@ -1822,8 +1825,8 @@ class PasswordToolGUI(tk.Tk):
             self.enqueue_log(f"\n下載字典：{name}\n{url}\n")
             if not dest.exists():
                 download_file(url, dest, self.enqueue_log)
-            self.enqueue_ui(lambda: self.apply_downloaded_wordlist(dest, name))
-            self.enqueue_status("字典已導入")
+            self.enqueue_ui(lambda: self.mark_downloaded_wordlist_available(dest, name))
+            self.enqueue_status("字典已下載")
         except Exception as exc:
             self.enqueue_log(f"\n[字典下載錯誤] {exc}\n")
             self.enqueue_status("字典下載失敗")
@@ -1835,11 +1838,23 @@ class PasswordToolGUI(tk.Tk):
         self.common_wordlist_download_button.state(["!disabled"])
         self._wordlist_download_lock.release()
 
-    def apply_downloaded_wordlist(self, path: Path, name: str) -> None:
+    def mark_downloaded_wordlist_available(self, path: Path, name: str) -> None:
+        self.quick_status.set(f"已下載字典：{name}；按「使用所選常見字典」才會套用。")
+
+    def use_selected_common_wordlist(self) -> None:
+        selected = self.common_wordlist.get()
+        item = next((item for item in COMMON_WORDLISTS if item[0] == selected), None)
+        if not item:
+            messagebox.showerror("字典錯誤", "請選擇要使用的字典。")
+            return
+        path = WORDLISTS_DIR / item[1]
+        if not path.is_file():
+            messagebox.showerror("字典錯誤", "請先下載所選字典。")
+            return
         self.quick_wordlist.set(str(path))
         self.hashcat_wordlist.set(str(path))
         self.john_wordlist.set(str(path))
-        self.quick_status.set(f"已導入字典：{name}")
+        self.quick_status.set(f"本次工作使用字典：{item[0]}")
 
     def sync_config_to_ui(self) -> None:
         for key, var in self.setting_vars.items():
@@ -2010,11 +2025,6 @@ class PasswordToolGUI(tk.Tk):
                 sources.append(path)
 
         add(manual_wordlist)
-        add(self.config_data.get("default_wordlist", ""))
-        if WORDLISTS_DIR.exists():
-            for path in sorted(WORDLISTS_DIR.rglob("*")):
-                if path.is_file():
-                    add(str(path))
         return sources
 
     def prepare_library_wordlist(self, sources: list[Path], dest: Path) -> str:

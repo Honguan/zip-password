@@ -101,7 +101,7 @@ class WordlistFlowTests(TestCase):
                 gui.enqueue_status = Mock()
                 gui.enqueue_log = Mock()
                 gui.enqueue_ui = Mock()
-                gui.apply_downloaded_wordlist = Mock()
+                gui.mark_downloaded_wordlist_available = Mock()
                 download = Mock(side_effect=error)
 
                 with (
@@ -123,6 +123,69 @@ class WordlistFlowTests(TestCase):
                 with patch.object(APP.threading, "Thread") as thread:
                     gui.download_selected_wordlist()
                 thread.return_value.start.assert_called_once_with()
+
+    def test_unselected_downloaded_wordlists_are_not_attack_sources(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            selected = root / "selected.txt"
+            selected.write_text("selected\n", encoding="utf-8")
+            (root / "historical.txt").write_text("historical\n", encoding="utf-8")
+            gui = object.__new__(APP.PasswordToolGUI)
+            gui.config_data = {"default_wordlist": str(root / "historical.txt")}
+
+            with patch.object(APP, "WORDLISTS_DIR", root), patch.object(
+                APP.Path, "rglob", side_effect=AssertionError("implicit scan is not allowed")
+            ) as rglob:
+                empty = gui.collect_dictionary_sources("")
+                sources = gui.collect_dictionary_sources(str(selected))
+
+        self.assertEqual(empty, [])
+        self.assertEqual(sources, [selected])
+        rglob.assert_not_called()
+
+    def test_download_does_not_select_wordlist_until_explicit_use(self):
+        gui = object.__new__(APP.PasswordToolGUI)
+        gui.quick_status = Value()
+        gui.quick_wordlist = Value("current.txt")
+
+        gui.mark_downloaded_wordlist_available(Path("downloaded.txt"), "Common")
+
+        self.assertEqual(gui.quick_wordlist.get(), "current.txt")
+        self.assertIn("才會套用", gui.quick_status.get())
+
+    def test_explicit_common_wordlist_selection_updates_current_job(self):
+        with TemporaryDirectory() as temp:
+            item = APP.COMMON_WORDLISTS[0]
+            path = Path(temp) / item[1]
+            path.touch()
+            gui = object.__new__(APP.PasswordToolGUI)
+            gui.common_wordlist = Value(item[0])
+            gui.quick_wordlist = Value()
+            gui.hashcat_wordlist = Value()
+            gui.john_wordlist = Value()
+            gui.quick_status = Value()
+
+            with patch.object(APP, "WORDLISTS_DIR", Path(temp)):
+                gui.use_selected_common_wordlist()
+
+        self.assertEqual(gui.quick_wordlist.get(), str(path))
+        self.assertEqual(gui.hashcat_wordlist.get(), str(path))
+        self.assertEqual(gui.john_wordlist.get(), str(path))
+
+    def test_attack_plan_log_lists_every_selected_source(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            sources = [root / "one.txt", root / "two.txt"]
+            for source in sources:
+                source.write_text(source.stem + "\n", encoding="utf-8")
+            gui = object.__new__(APP.PasswordToolGUI)
+            gui.enqueue_log = Mock()
+
+            gui.prepare_library_wordlist(sources, root / "merged.txt")
+
+        log = "".join(call.args[0] for call in gui.enqueue_log.call_args_list)
+        self.assertIn(str(sources[0]), log)
+        self.assertIn(str(sources[1]), log)
 
 if __name__ == "__main__":
     main()
