@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import fnmatch
 import re
 from pathlib import Path
@@ -32,6 +33,13 @@ PDF_HASHCAT_MODES = {
     ("5", "5", "256"): "10600 - PDF 1.7 Level 3",
     ("5", "6", "256"): "10700 - PDF 1.7 Level 8",
 }
+
+
+@dataclass(frozen=True)
+class HashModeDetection:
+    status: str
+    mode: str = ""
+    candidates: tuple[str, ...] = ()
 
 
 def config_bool(value: str | bool | None, default: bool = True) -> bool:
@@ -68,25 +76,30 @@ def prepare_hash_output(text: str, target: str) -> str:
     return "\n".join(cleaned) + ("\n" if cleaned else "")
 
 
-def detect_hashcat_mode(hash_text: str) -> str:
+def detect_hashcat_mode(hash_text: str) -> HashModeDetection:
     lines = [line.strip() for line in hash_text.splitlines() if line.strip()]
     for line in lines:
         lower = line.lower()
         if lower.startswith("$pdf$"):
             match = re.match(r"^\$pdf\$(\d+)\*(\d+)\*(\d+)\*", lower)
             if not match:
-                return ""
+                return HashModeDetection("unsupported")
             if match.groups() in {("2", "3", "128"), ("4", "4", "128")} and lower.count("*") == 11:
-                return "25400 - PDF 1.4-1.6 user/owner"
-            return PDF_HASHCAT_MODES.get(match.groups(), "")
+                return HashModeDetection("detected", "25400 - PDF 1.4-1.6 user/owner")
+            mode = PDF_HASHCAT_MODES.get(match.groups(), "")
+            return HashModeDetection("detected", mode) if mode else HashModeDetection("unsupported")
         for pattern, mode_label in HASHCAT_PREFIX_MODES:
             if fnmatch.fnmatch(lower, pattern.lower()):
-                return mode_label
+                return HashModeDetection("detected", mode_label)
     if lines and re.fullmatch(r"[0-9a-fA-F]{32}", lines[0]):
-        return "0 - MD5"
+        return HashModeDetection("ambiguous", candidates=("0 - MD5", "1000 - NTLM"))
     if lines and re.fullmatch(r"[0-9a-fA-F]{40}", lines[0]):
-        return "100 - SHA1"
-    return ""
+        return HashModeDetection("detected", "100 - SHA1")
+    if lines and re.fullmatch(r"[0-9a-fA-F]{64}", lines[0]):
+        return HashModeDetection("ambiguous", candidates=("1400 - SHA2-256", "其他 64-hex 模式"))
+    if lines and re.fullmatch(r"[0-9a-fA-F]{128}", lines[0]):
+        return HashModeDetection("ambiguous", candidates=("1700 - SHA2-512", "其他 128-hex 模式"))
+    return HashModeDetection("unsupported")
 
 
 def extract_passwords_from_show(text: str, engine: str, plaintext_only: bool = False) -> list[str]:

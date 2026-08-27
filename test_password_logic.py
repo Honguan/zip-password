@@ -56,7 +56,8 @@ class PasswordLogicTests(TestCase):
         }
         for hash_text, expected in modes.items():
             with self.subTest(hash_text=hash_text):
-                self.assertEqual(logic.detect_hashcat_mode(hash_text), expected)
+                result = logic.detect_hashcat_mode(hash_text)
+                self.assertEqual((result.status, result.mode), ("detected", expected))
         self.assertEqual(
             logic.extract_passwords_from_show("hash:secret\n0 passwords cracked\n", "hashcat"),
             ["secret"],
@@ -74,9 +75,28 @@ class PasswordLogicTests(TestCase):
 
         for hash_text, expected in examples.items():
             with self.subTest(hash_text=hash_text[:20]):
-                self.assertEqual(logic.detect_hashcat_mode(hash_text), expected)
+                result = logic.detect_hashcat_mode(hash_text)
+                self.assertEqual((result.status, result.mode), ("detected", expected))
 
-        self.assertEqual(logic.detect_hashcat_mode("$pdf$9*9*256*unknown"), "")
+        self.assertEqual(logic.detect_hashcat_mode("$pdf$9*9*256*unknown").status, "unsupported")
+
+    def test_raw_hash_detection_reports_ambiguity(self):
+        md5 = logic.detect_hashcat_mode("5d41402abc4b2a76b9719d911017c592")
+        ntlm = logic.detect_hashcat_mode("8846f7eaee8fb117ad06bdd830b7586c")
+        sha1 = logic.detect_hashcat_mode("aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d")
+        sha256 = logic.detect_hashcat_mode("a" * 64)
+        sha512 = logic.detect_hashcat_mode("b" * 128)
+
+        for result in (md5, ntlm):
+            self.assertEqual(result.status, "ambiguous")
+            self.assertEqual(result.mode, "")
+            self.assertIn("0 - MD5", result.candidates)
+            self.assertIn("1000 - NTLM", result.candidates)
+        self.assertEqual((sha1.status, sha1.mode), ("detected", "100 - SHA1"))
+        self.assertEqual(sha256.status, "ambiguous")
+        self.assertIn("1400 - SHA2-256", sha256.candidates)
+        self.assertEqual(sha512.status, "ambiguous")
+        self.assertIn("1700 - SHA2-512", sha512.candidates)
 
     def test_john_password_parsing_preserves_password_fields(self):
         shown = (

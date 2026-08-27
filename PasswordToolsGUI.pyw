@@ -2168,7 +2168,15 @@ class PasswordToolGUI(tk.Tk):
             hashcat_text = prepare_hash_output(john_text, "hashcat")
             paths["hashcat_hash"].write_text(hashcat_text, encoding="utf-8", newline="\n")
 
-            mode_label = detect_hashcat_mode(hashcat_text)
+            detection = detect_hashcat_mode(hashcat_text)
+            mode_label = detection.mode
+            if detection.status == "ambiguous":
+                candidates = "、".join(detection.candidates)
+                message = f"雜湊格式無法唯一判定，請在進階工具選擇 Hashcat 模式（候選：{candidates}）。"
+                self.enqueue_log(f"\n[自動流程] {message}\n")
+                self.enqueue_status(message)
+                self.enqueue_ui(lambda: self.quick_status.set(message))
+                return
             unknown_pdf_mode = not mode_label and any(
                 line.strip().lower().startswith("$pdf$") for line in hashcat_text.splitlines()
             )
