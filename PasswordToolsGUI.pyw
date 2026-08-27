@@ -20,6 +20,7 @@ import hashlib
 import urllib.parse
 import urllib.request
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext
 import tkinter as tk
@@ -644,13 +645,34 @@ def count_text_lines(path: Path, limit: int = 5_000_000, cancel: threading.Event
         return "無法統計"
 
 
-def merge_wordlist_files(sources: list[Path], dest: Path, limit: int = 5_000_000) -> int:
+@dataclass(frozen=True)
+class WordlistMergeFailure:
+    source: Path
+    error: str
+    required: bool
+
+
+@dataclass(frozen=True)
+class WordlistMergeResult:
+    written_count: int
+    loaded_sources: tuple[Path, ...]
+    failed_sources: tuple[WordlistMergeFailure, ...]
+    truncated_by_limit: bool
+
+
+def merge_wordlist_files(
+    sources: list[Path], dest: Path, limit: int = 5_000_000, optional_sources: set[Path] | None = None
+) -> WordlistMergeResult:
     dest.parent.mkdir(parents=True, exist_ok=True)
     count = 0
+    loaded: list[Path] = []
+    failed: list[WordlistMergeFailure] = []
+    optional = {path.resolve() for path in optional_sources or set()}
     with dest.open("w", encoding="utf-8", newline="\n") as out:
         for source in sources:
             try:
                 with source.open("rb") as fh:
+                    loaded.append(source)
                     for raw in fh:
                         line = decode_bytes(raw).strip()
                         if not line:
@@ -658,10 +680,10 @@ def merge_wordlist_files(sources: list[Path], dest: Path, limit: int = 5_000_000
                         out.write(line + "\n")
                         count += 1
                         if count >= limit:
-                            return count
-            except Exception:
-                continue
-    return count
+                            return WordlistMergeResult(count, tuple(loaded), tuple(failed), True)
+            except OSError as exc:
+                failed.append(WordlistMergeFailure(source, f"{type(exc).__name__}: {exc}", source.resolve() not in optional))
+    return WordlistMergeResult(count, tuple(loaded), tuple(failed), False)
 
 
 def format_elapsed(seconds: float | None) -> str:
@@ -2027,15 +2049,24 @@ class PasswordToolGUI(tk.Tk):
         add(manual_wordlist)
         return sources
 
-    def prepare_library_wordlist(self, sources: list[Path], dest: Path) -> str:
+    def prepare_library_wordlist(
+        self, sources: list[Path], dest: Path, optional_sources: set[Path] | None = None
+    ) -> str:
         if not sources:
             return ""
-        count = merge_wordlist_files(sources, dest)
-        if count <= 0:
+        result = merge_wordlist_files(sources, dest, optional_sources=optional_sources)
+        for failure in result.failed_sources:
+            level = "必要" if failure.required else "選用"
+            self.enqueue_log(f"[字典來源錯誤／{level}] {failure.source}：{failure.error}\n")
+        required_failures = [failure for failure in result.failed_sources if failure.required]
+        if required_failures:
+            raise RuntimeError(f"無法讀取指定字典：{required_failures[0].source}（{required_failures[0].error}）")
+        if result.written_count <= 0:
             return ""
         self.enqueue_log("\n[階段 1] 字典庫破解\n")
-        self.enqueue_log("字典來源：\n" + "\n".join(f"- {path}" for path in sources) + "\n")
-        self.enqueue_log(f"合併字典：{dest}\n候選數：{count:,} 筆\n")
+        self.enqueue_log("實際載入來源：\n" + "\n".join(f"- {path}" for path in result.loaded_sources) + "\n")
+        limit_status = "（已達上限）" if result.truncated_by_limit else ""
+        self.enqueue_log(f"合併字典：{dest}\n候選數：{result.written_count:,} 筆{limit_status}\n")
         return str(dest)
 
     def prepare_combo_wordlist(self, combo_file: str, combo_key: str, paths: dict[str, Path]) -> str:
@@ -2058,10 +2089,16 @@ class PasswordToolGUI(tk.Tk):
             return ""
         if len(sources) == 1:
             return str(sources[0])
-        count = merge_wordlist_files(sources, paths["combo_wordlist"])
-        if count <= 0:
+        result = merge_wordlist_files(sources, paths["combo_wordlist"])
+        if result.failed_sources:
+            failure = result.failed_sources[0]
+            self.enqueue_log(f"[字典來源錯誤／必要] {failure.source}：{failure.error}\n")
+            raise RuntimeError(f"無法讀取指定字典：{failure.source}（{failure.error}）")
+        if result.written_count <= 0:
             return ""
-        self.enqueue_log(f"\n[階段 2] 組合候選已合併：{paths['combo_wordlist']}\n候選數：{count:,} 筆\n")
+        self.enqueue_log(
+            f"\n[階段 2] 組合候選已合併：{paths['combo_wordlist']}\n候選數：{result.written_count:,} 筆\n"
+        )
         return str(paths["combo_wordlist"])
 
     def prepare_auto_wordlist(self, wordlist: str, expanded_path: Path, should_expand: bool) -> str:

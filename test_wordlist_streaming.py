@@ -64,13 +64,31 @@ class WordlistStreamingTests(TestCase):
             expanded = root / "expanded.txt"
             first.write_text("Alpha\n", encoding="utf-8")
             second.write_text("later-password\n", encoding="utf-8")
-            APP.merge_wordlist_files([first, second], merged)
+            result = APP.merge_wordlist_files([first, second], merged)
+            self.assertEqual(result.loaded_sources, (first, second))
+            self.assertEqual(result.failed_sources, ())
+            self.assertFalse(result.truncated_by_limit)
 
             APP.build_expanded_wordlist(merged, expanded, limit=1)
 
             candidates = expanded.read_text(encoding="utf-8").splitlines()
             self.assertIn("Alpha", candidates)
             self.assertIn("later-password", candidates)
+
+    def test_merge_limit_and_io_failure_have_distinct_results(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "source.txt"
+            missing = root / "missing.txt"
+            source.write_text("one\ntwo\n", encoding="utf-8")
+
+            truncated = APP.merge_wordlist_files([source], root / "truncated.txt", limit=1)
+            failed = APP.merge_wordlist_files([missing], root / "failed.txt")
+
+        self.assertTrue(truncated.truncated_by_limit)
+        self.assertEqual(truncated.failed_sources, ())
+        self.assertFalse(failed.truncated_by_limit)
+        self.assertEqual(failed.failed_sources[0].source, missing)
 
     def test_expansion_stops_when_cancelled(self):
         source = Mock()
