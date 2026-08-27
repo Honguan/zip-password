@@ -1,26 +1,29 @@
 import password_gui.app as APP
 from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
-
-
-class FakeNotebook:
-    def __init__(self):
-        self.states = {}
-
-    def tab(self, tab, **kwargs):
-        self.states[tab] = kwargs["state"]
 
 
 class FakeButton:
     def __init__(self):
         self.text = ""
         self.states = []
+        self.visible = False
 
     def configure(self, **kwargs):
         self.text = kwargs["text"]
 
     def state(self, values):
         self.states = values
+
+    def pack(self, **_kwargs):
+        self.visible = True
+
+    def pack_forget(self):
+        self.visible = False
+
+    def winfo_manager(self):
+        return "pack" if self.visible else ""
 
 
 class FakeValue:
@@ -43,6 +46,11 @@ class FakeFrame:
 
 
 class UiModeTests(unittest.TestCase):
+    def destroy_gui(self, gui):
+        for after_id in gui.tk.splitlist(gui.tk.call("after", "info")):
+            gui.after_cancel(after_id)
+        gui.destroy()
+
     def test_monospace_font_falls_back_without_cascadia(self):
         self.assertEqual(
             APP.select_font_family({"Consolas"}, ("Cascadia Mono", "Consolas"), "TkFixedFont"),
@@ -64,48 +72,93 @@ class UiModeTests(unittest.TestCase):
         self.assertEqual(gui.quick_start_button.states, ["disabled"])
         self.assertEqual(gui.stop_button.text, "正在停止…")
         self.assertEqual(gui.stop_button.states, ["disabled"])
+        self.assertTrue(gui.stop_button.visible)
 
         gui.render_job(APP.JobSnapshot(state=APP.JobState.CANCELLED))
         self.assertEqual(gui.quick_status.value, "工作已取消。")
         self.assertEqual(gui.quick_start_button.states, ["!disabled"])
         self.assertEqual(gui.stop_button.text, "停止")
+        self.assertFalse(gui.stop_button.visible)
 
     def test_tools_directory_is_not_an_editable_setting(self):
         self.assertFalse(hasattr(APP.default_config(), "tools_dir"))
 
-    def test_advanced_tabs_are_hidden_by_default_and_can_be_shown(self):
+    def test_advanced_settings_replace_the_main_workspace(self):
         gui = object.__new__(APP.PasswordToolGUI)
-        gui.notebook = FakeNotebook()
         gui.advanced_toggle = FakeButton()
-        gui.launcher = FakeFrame()
-        gui._advanced_tabs = ("extract", "hashcat", "john", "settings")
+        gui.main_workspace = FakeFrame()
+        gui.advanced_panel = FakeFrame()
 
         gui.set_advanced_visible(False)
 
-        self.assertEqual(gui.notebook.states, {tab: "hidden" for tab in gui._advanced_tabs})
-        self.assertEqual(gui.advanced_toggle.text, "顯示進階工具")
-        self.assertTrue(gui.launcher.visible)
+        self.assertEqual(gui.advanced_toggle.text, "進階設定")
+        self.assertTrue(gui.main_workspace.visible)
+        self.assertFalse(gui.advanced_panel.visible)
 
         gui.set_advanced_visible(True)
 
-        self.assertEqual(gui.notebook.states, {tab: "normal" for tab in gui._advanced_tabs})
-        self.assertEqual(gui.advanced_toggle.text, "隱藏進階工具")
-        self.assertTrue(gui.launcher.visible)
+        self.assertEqual(gui.advanced_toggle.text, "返回工作")
+        self.assertFalse(gui.main_workspace.visible)
+        self.assertTrue(gui.advanced_panel.visible)
 
-    def test_optional_candidate_fields_can_be_collapsed(self):
-        gui = object.__new__(APP.PasswordToolGUI)
-        gui.candidate_options = FakeFrame()
-        gui.candidate_options_toggle = FakeButton()
+    def test_target_summary_and_candidate_requirements_gate_start(self):
+        with TemporaryDirectory() as temp:
+            target = Path(temp) / "sample.zip"
+            target.write_bytes(b"zip")
+            gui = APP.PasswordToolGUI()
+            try:
+                gui.quick_input.set(str(target))
+                gui.update()
+                self.assertIn("sample.zip｜ZIP", gui.target_summary.get())
+                self.assertTrue(gui.quick_start_button.instate(["!disabled"]))
 
-        gui.set_candidate_options_visible(False)
+                gui.quick_wordlist.set("")
+                gui.candidate_source.set("自訂字典")
+                gui.update()
+                self.assertTrue(gui.quick_start_button.instate(["disabled"]))
+                self.assertIn("字典", gui.quick_status.get())
 
-        self.assertFalse(gui.candidate_options.visible)
-        self.assertEqual(gui.candidate_options_toggle.text, "顯示候選選項")
+                wordlist = Path(temp) / "words.txt"
+                wordlist.write_text("secret\n", encoding="utf-8")
+                gui.quick_wordlist.set(str(wordlist))
+                gui.update()
+                self.assertTrue(gui.quick_start_button.instate(["!disabled"]))
+            finally:
+                self.destroy_gui(gui)
 
-        gui.set_candidate_options_visible(True)
+    def test_job_results_and_details_use_distinct_main_views(self):
+        gui = APP.PasswordToolGUI()
+        try:
+            self.assertFalse(gui.details_panel.winfo_ismapped())
+            gui.show_job_view()
+            gui.set_details_visible(True)
+            gui.update()
+            self.assertTrue(gui.details_panel.winfo_ismapped())
 
-        self.assertTrue(gui.candidate_options.visible)
-        self.assertEqual(gui.candidate_options_toggle.text, "收起候選選項")
+            stage = APP.JobStage(id="hints", display_name="提示詞組合")
+            gui.render_job(
+                APP.JobSnapshot(
+                    state=APP.JobState.RUNNING,
+                    stages=(stage,),
+                    total_stages=1,
+                )
+            )
+            gui.update()
+            self.assertEqual(gui.output_job_var.get(), "1 / 1  提示詞組合")
+            self.assertTrue(gui.stop_button.winfo_ismapped())
+
+            for state, title in (
+                (APP.JobState.SUCCEEDED, "已找到密碼"),
+                (APP.JobState.EXHAUSTED, "未找到密碼"),
+                (APP.JobState.FAILED, "工作失敗"),
+            ):
+                gui.render_job(APP.JobSnapshot(state=state, error="可讀錯誤"))
+                gui.update()
+                self.assertEqual(gui.result_title_var.get(), title)
+                self.assertTrue(gui.output_tab.winfo_ismapped())
+                self.assertFalse(gui.launcher.winfo_ismapped())
+        finally:
+            self.destroy_gui(gui)
 
     def test_minimum_window_keeps_primary_sections_visible(self):
         gui = APP.PasswordToolGUI()
@@ -115,29 +168,34 @@ class UiModeTests(unittest.TestCase):
             self.assertEqual(mono.measure("iiii"), mono.measure("WWWW"))
             self.assertGreater(ui.measure("繁體中文"), 0)
 
-            gui.geometry("1100x720")
-            gui.update()
-            visible_launcher_children = [child for child in gui.launcher.winfo_children() if child.winfo_ismapped()]
-
-            self.assertLessEqual(
-                max(child.winfo_y() + child.winfo_height() for child in visible_launcher_children),
-                gui.launcher.winfo_height(),
-            )
-            self.assertTrue(all(child.winfo_ismapped() for child in gui.output_tab.winfo_children()))
+            for geometry in ("1100x720", "1366x768"):
+                gui.geometry(geometry)
+                gui.show_launcher()
+                gui.update()
+                self.assertTrue(gui.quick_start_button.winfo_ismapped())
+                self.assertLessEqual(
+                    gui.quick_start_button.winfo_x() + gui.quick_start_button.winfo_width(),
+                    gui.launcher.winfo_width(),
+                )
+                self.assertLessEqual(
+                    gui.quick_start_button.winfo_y() + gui.quick_start_button.winfo_height(),
+                    gui.launcher.winfo_height(),
+                )
 
             gui.set_advanced_visible(True)
             gui.update()
-            self.assertTrue(gui.launcher.winfo_ismapped())
-            for tab in gui._advanced_tabs:
+            self.assertFalse(gui.main_workspace.winfo_ismapped())
+            self.assertTrue(gui.advanced_panel.winfo_ismapped())
+            for tab in (gui.extract_tab, gui.hashcat_tab, gui.john_tab, gui.settings_tab, gui.help_tab):
                 gui.notebook.select(tab)
                 gui.update()
                 self.assertLessEqual(tab.winfo_reqwidth(), tab.winfo_width())
 
             gui.set_advanced_visible(False)
             gui.update()
-            self.assertTrue(gui.launcher.winfo_ismapped())
+            self.assertTrue(gui.main_workspace.winfo_ismapped())
         finally:
-            gui.destroy()
+            self.destroy_gui(gui)
 
 
 if __name__ == "__main__":
