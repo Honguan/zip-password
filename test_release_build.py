@@ -6,10 +6,10 @@ ROOT = Path(__file__).parent
 
 
 class ReleaseBuildTests(unittest.TestCase):
-    def test_spec_uses_relative_font_path(self):
+    def test_spec_does_not_bundle_a_font(self):
         spec = (ROOT / "build" / "密碼工具GUI.spec").read_text(encoding="utf-8")
-        self.assertIn("('..\\\\Iansui-Regular.ttf', '.')", spec)
-        self.assertNotIn("C:\\\\Users\\\\", spec)
+        self.assertIn("datas=[]", spec)
+        self.assertNotIn(".ttf", spec.lower())
 
     def test_release_workflow_builds_and_publishes_tagged_release(self):
         workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")

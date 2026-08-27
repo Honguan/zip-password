@@ -43,6 +43,16 @@ class FakeFrame:
 
 
 class UiModeTests(unittest.TestCase):
+    def test_monospace_font_falls_back_without_cascadia(self):
+        self.assertEqual(
+            APP.select_font_family({"Consolas"}, ("Cascadia Mono", "Consolas"), "TkFixedFont"),
+            "Consolas",
+        )
+        self.assertEqual(
+            APP.select_font_family(set(), ("Cascadia Mono", "Consolas"), "TkFixedFont"),
+            "TkFixedFont",
+        )
+
     def test_job_render_distinguishes_stopping_from_cancelled(self):
         gui = object.__new__(APP.PasswordToolGUI)
         gui.quick_status = FakeValue()
@@ -100,6 +110,11 @@ class UiModeTests(unittest.TestCase):
     def test_minimum_window_keeps_primary_sections_visible(self):
         gui = APP.PasswordToolGUI()
         try:
+            mono = APP.tkfont.Font(gui, family=gui.mono_font, size=10)
+            ui = APP.tkfont.Font(gui, family=gui.ui_font, size=11)
+            self.assertEqual(mono.measure("iiii"), mono.measure("WWWW"))
+            self.assertGreater(ui.measure("繁體中文"), 0)
+
             gui.geometry("1100x720")
             gui.update()
             visible_launcher_children = [child for child in gui.launcher.winfo_children() if child.winfo_ismapped()]
