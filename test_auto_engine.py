@@ -1,4 +1,5 @@
 import password_gui.app as APP
+from password_gui.job import ErrorCategory
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, main
@@ -17,6 +18,13 @@ class Value:
 
 
 class AutoEngineTests(TestCase):
+    def start_job(self, gui, source):
+        gui.conversion_cancel = APP.threading.Event()
+        gui.job_controller = APP.JobController()
+        gui.job_controller.start(
+            APP.JobContext(source_file=source, cancellation_token=gui.conversion_cancel)
+        )
+
     def test_custom_output_directory_is_used_by_auto_and_extract_paths(self):
         with TemporaryDirectory() as temp:
             root = Path(temp)
@@ -68,6 +76,7 @@ class AutoEngineTests(TestCase):
             gui.enqueue_ui = Mock()
             gui.enqueue_log = Mock()
             gui.enqueue_status = Mock()
+            self.start_job(gui, source)
             settings = {
                 "auto_download": True,
                 "converter": "rar2john.exe",
@@ -87,7 +96,7 @@ class AutoEngineTests(TestCase):
         self.assertFalse(cracked.exists())
         gui.after.assert_not_called()
         gui.enqueue_ui.call_args.args[0]()
-        gui.start_auto_stages.assert_called_once_with([], 0)
+        gui.start_auto_stages.assert_called_once_with()
 
     def test_rar5_falls_back_to_john_when_hashcat_is_unavailable(self):
         with TemporaryDirectory() as temp:
@@ -110,6 +119,7 @@ class AutoEngineTests(TestCase):
             gui.enqueue_ui = Mock()
             gui.enqueue_log = Mock()
             gui.enqueue_status = Mock()
+            self.start_job(gui, source)
             settings = {
                 "auto_download": True,
                 "converter": "",
@@ -146,6 +156,7 @@ class AutoEngineTests(TestCase):
             gui.enqueue_ui = Mock()
             gui.enqueue_log = Mock()
             gui.enqueue_status = Mock()
+            self.start_job(gui, source)
             settings = {
                 "auto_download": True,
                 "converter": "",
@@ -182,6 +193,7 @@ class AutoEngineTests(TestCase):
             gui.enqueue_ui = Mock()
             gui.enqueue_log = Mock()
             gui.enqueue_status = Mock()
+            self.start_job(gui, source)
             settings = {
                 "auto_download": True,
                 "converter": "",
@@ -194,9 +206,11 @@ class AutoEngineTests(TestCase):
             gui._auto_workflow(source, "wordlist.txt", settings)
 
         gui.build_auto_attack_stages.assert_not_called()
-        self.assertIn("無法唯一判定", gui.enqueue_status.call_args.args[0])
-        gui.enqueue_ui.call_args.args[0]()
-        self.assertIn("選擇 Hashcat 模式", gui.quick_status.get())
+        self.assertEqual(gui.job_controller.state, APP.JobState.FAILED)
+        self.assertEqual(
+            gui.job_controller.snapshot.error_category,
+            ErrorCategory.UNSUPPORTED_FORMAT,
+        )
 
 
 if __name__ == "__main__":

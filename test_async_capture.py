@@ -47,7 +47,7 @@ class AsyncCaptureTests(TestCase):
             gui.capture_thread.target()
             complete.assert_not_called()
             gui.enqueue_ui.call_args.args[0]()
-            complete.assert_called_once_with()
+            complete.assert_called_once_with(None)
 
     def test_load_formats_callback_does_not_wait_for_john(self):
         gui = self.make_gui()

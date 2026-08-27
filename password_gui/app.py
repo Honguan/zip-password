@@ -82,6 +82,22 @@ from password_gui.wordlists import (
     merge_wordlist_files,
     split_candidate_tokens,
 )
+from password_gui.job import (
+    CancelledError,
+    ConverterError,
+    EngineLaunchError,
+    EngineRuntimeError,
+    InvalidDictionaryError,
+    JobAlreadyRunningError,
+    JobContext,
+    JobController,
+    JobSnapshot,
+    JobStage,
+    JobState,
+    MissingToolError,
+    StageResult,
+    UnsupportedFormatError,
+)
 from password_gui.workflow import attack_steps
 
 
@@ -319,6 +335,7 @@ class PasswordToolGUI(tk.Tk):
         self.auto_thread: threading.Thread | None = None
         self.capture_thread: threading.Thread | None = None
         self.conversion_cancel = threading.Event()
+        self.job_controller = JobController(self._on_job_snapshot)
         self.converter_names: list[str] = []
         self.setting_vars: dict[str, tk.StringVar] = {}
         self._build_style()
@@ -399,7 +416,10 @@ class PasswordToolGUI(tk.Tk):
         ttk.Button(top_actions, text="檢查並下載工具", command=lambda: self.ensure_tools_async(force_download=True)).pack(side="left", padx=(0, 8))
         self.advanced_toggle = ttk.Button(top_actions, command=lambda: self.set_advanced_visible(not self._advanced_visible))
         self.advanced_toggle.pack(side="left", padx=(0, 8))
-        ttk.Button(top_actions, text="停止", command=self.stop_current_work, style="Danger.TButton").pack(side="left")
+        self.stop_button = ttk.Button(
+            top_actions, text="停止", command=self.stop_current_work, style="Danger.TButton"
+        )
+        self.stop_button.pack(side="left")
 
         body = ttk.Frame(root, style="Shell.TFrame")
         body.grid(row=1, column=0, sticky="nsew")
@@ -485,7 +505,10 @@ class PasswordToolGUI(tk.Tk):
         file_box.columnconfigure(0, weight=1)
         ttk.Entry(file_box, textvariable=self.quick_input).grid(row=0, column=0, sticky="ew")
         ttk.Button(file_box, text="瀏覽", command=self._browse_quick_file).grid(row=0, column=1, padx=(8, 0))
-        ttk.Button(parent, text="開始自動破解", command=self.auto_start_selected, style="Accent.TButton").grid(row=4, column=0, sticky="ew", pady=(0, 14))
+        self.quick_start_button = ttk.Button(
+            parent, text="開始自動破解", command=self.auto_start_selected, style="Accent.TButton"
+        )
+        self.quick_start_button.grid(row=4, column=0, sticky="ew", pady=(0, 14))
 
         ttk.Label(parent, text="2  選擇字典（選填）", style="PanelHeader.TLabel").grid(row=5, column=0, sticky="w")
         dict_box = ttk.Frame(parent, style="Panel.TFrame")
@@ -978,8 +1001,103 @@ class PasswordToolGUI(tk.Tk):
         self.output.see("end")
 
     def set_status(self, text: str) -> None:
+        controller = self.__dict__.get("job_controller")
+        if controller and controller.state not in {
+            JobState.IDLE, JobState.SUCCEEDED, JobState.EXHAUSTED, JobState.FAILED, JobState.CANCELLED
+        }:
+            return
         self.status_var.set(text)
         self.refresh_output_overview()
+
+    def _on_job_snapshot(self, snapshot: JobSnapshot) -> None:
+        if threading.current_thread() is threading.main_thread():
+            self.render_job(snapshot)
+        else:
+            self.enqueue_ui(lambda snapshot=snapshot: self.render_job(snapshot))
+
+    def render_job(self, snapshot: JobSnapshot) -> None:
+        labels = {
+            JobState.IDLE: "就緒",
+            JobState.PREPARING: "準備中",
+            JobState.CHECKING_ENV: "檢查工具環境",
+            JobState.CONVERTING: "轉換雜湊",
+            JobState.BUILDING_CANDIDATES: "建立候選",
+            JobState.RUNNING: "執行中",
+            JobState.STOPPING: "正在停止…",
+            JobState.SUCCEEDED: "已找到密碼",
+            JobState.EXHAUSTED: "未找到密碼",
+            JobState.FAILED: "失敗",
+            JobState.CANCELLED: "已取消",
+        }
+        messages = {
+            JobState.IDLE: "尚未開始。",
+            JobState.PREPARING: "正在準備工作。",
+            JobState.CHECKING_ENV: "正在檢查工具環境。",
+            JobState.CONVERTING: "正在轉換雜湊。",
+            JobState.BUILDING_CANDIDATES: "正在建立候選與攻擊計畫。",
+            JobState.RUNNING: "破解工作執行中。",
+            JobState.STOPPING: "正在停止工作，請稍候。",
+            JobState.SUCCEEDED: "已找到密碼，工作完成。",
+            JobState.EXHAUSTED: "所有策略已完成，尚未找到密碼。",
+            JobState.FAILED: snapshot.error or "工作失敗，請查看詳細記錄。",
+            JobState.CANCELLED: "工作已取消。",
+        }
+        label = labels[snapshot.state]
+        current_stage = snapshot.current_stage
+        active = snapshot.state in {
+            JobState.PREPARING,
+            JobState.CHECKING_ENV,
+            JobState.CONVERTING,
+            JobState.BUILDING_CANDIDATES,
+            JobState.RUNNING,
+            JobState.STOPPING,
+        }
+        if "quick_status" in self.__dict__:
+            self.quick_status.set(messages[snapshot.state])
+        if "status_var" in self.__dict__:
+            self.status_var.set(label)
+        if "output_status_var" in self.__dict__:
+            self.output_status_var.set(label)
+            self.output_job_var.set(
+                current_stage.display_name
+                if current_stage
+                else Path(snapshot.source_file).name if snapshot.source_file else "尚未開始"
+            )
+            progress = snapshot.progress
+            self.output_progress_var.set(
+                f"{progress:.2f}%" if isinstance(progress, (int, float)) else str(progress or "0%")
+            )
+            self.progress_value.set(float(progress) if isinstance(progress, (int, float)) else 0)
+            self.output_elapsed_var.set(format_elapsed(snapshot.elapsed_time))
+            self.output_speed_var.set(snapshot.speed or "-")
+            self.output_temp_var.set(snapshot.temperature or "-")
+            self.output_recovered_var.set(
+                snapshot.recovered_count
+                or (f"{len(snapshot.recovered_passwords)} 筆" if snapshot.recovered_passwords else "-")
+            )
+            self.output_candidate_var.set(
+                snapshot.current_candidate or snapshot.candidate_count or "-"
+            )
+            self.output_length_var.set(snapshot.password_length or "-")
+            self.output_queue_var.set(snapshot.queue or "-")
+            self.output_mode_var.set(snapshot.mode or snapshot.selected_engine or "-")
+            paths = dict(snapshot.output_paths)
+            self.output_file_var.set(str(paths.get("cracked", "尚未產生輸出")))
+            self.refresh_output_overview()
+            if snapshot.state == JobState.PREPARING:
+                self.last_cracked_file = None
+                self.set_cracked_passwords([])
+            elif snapshot.state == JobState.SUCCEEDED:
+                cracked = Path(paths["cracked"]) if "cracked" in paths else None
+                self.set_cracked_passwords(list(snapshot.recovered_passwords), cracked)
+            elif snapshot.state == JobState.EXHAUSTED:
+                cracked = Path(paths["cracked"]) if "cracked" in paths else None
+                self.set_cracked_passwords([], cracked)
+        if "quick_start_button" in self.__dict__:
+            self.quick_start_button.state(["disabled"] if active else ["!disabled"])
+        if "stop_button" in self.__dict__:
+            self.stop_button.configure(text="正在停止…" if snapshot.state == JobState.STOPPING else "停止")
+            self.stop_button.state(["!disabled"] if active and snapshot.state != JobState.STOPPING else ["disabled"])
 
     def clear_output_view(self) -> None:
         self.output_snapshot = DashboardSnapshot()
@@ -1056,46 +1174,72 @@ class PasswordToolGUI(tk.Tk):
         )
 
     def update_elapsed(self) -> None:
-        if hasattr(self, "output_elapsed_var"):
+        controller = self.__dict__.get("job_controller")
+        if controller and controller.state not in {
+            JobState.IDLE, JobState.SUCCEEDED, JobState.EXHAUSTED, JobState.FAILED, JobState.CANCELLED
+        }:
+            self.render_job(controller.snapshot)
+        elif hasattr(self, "output_elapsed_var"):
             self.output_elapsed_var.set(format_elapsed(self.runner.elapsed_seconds()))
 
     def update_output_dashboard(self, text: str) -> None:
         if not hasattr(self, "output_status_var"):
             return
+        controller = self.__dict__.get("job_controller")
+        job_active = controller is not None and controller.state not in {
+            JobState.IDLE, JobState.SUCCEEDED, JobState.EXHAUSTED, JobState.FAILED, JobState.CANCELLED
+        }
         for raw_line in text.splitlines():
             line = raw_line.strip()
             if not line:
                 continue
-            if "啟動 " in line:
+            if "啟動 " in line and not job_active:
                 self.output_job_var.set(line.strip("[]"))
             events = self.output_parser.feed(line)
             for event in events:
                 self.output_snapshot = apply_event(self.output_snapshot, event)
             if events:
-                self.render_output_snapshot(self.output_snapshot)
+                if job_active:
+                    progress: float | str = (
+                        self.output_snapshot.progress_percent
+                        if self.output_snapshot.progress_percent
+                        else self.output_snapshot.progress
+                    )
+                    controller.update(
+                        progress=progress,
+                        speed=self.output_snapshot.speed,
+                        temperature=self.output_snapshot.temperature,
+                        current_candidate=self.output_snapshot.candidate,
+                        recovered_count=self.output_snapshot.recovered,
+                    )
+                else:
+                    self.render_output_snapshot(self.output_snapshot)
             match = re.match(r"Hash\.Mode\.+:\s*(.+)", line, re.I)
             if match:
-                self.output_mode_var.set(self.short_metric(match.group(1).strip(), 52))
+                value = self.short_metric(match.group(1).strip(), 52)
+                controller.update(mode=value) if job_active else self.output_mode_var.set(value)
             match = re.match(r"Input\.Mode\.+:\s*(.+)", line, re.I)
             if match:
-                self.output_mode_var.set(self.short_metric(match.group(1).strip(), 52))
+                value = self.short_metric(match.group(1).strip(), 52)
+                controller.update(mode=value) if job_active else self.output_mode_var.set(value)
             match = re.match(r"Guess\.Mask\.+:\s*(.+)", line, re.I)
             if match:
                 mask_text = match.group(1).strip()
                 length_match = re.search(r"\[(\d+)\]\s*$", mask_text)
-                if length_match:
-                    self.output_length_var.set(f"{length_match.group(1)} 位")
-                else:
-                    self.output_length_var.set(f"{estimate_mask_length(mask_text)} 位")
+                value = f"{length_match.group(1)} 位" if length_match else f"{estimate_mask_length(mask_text)} 位"
+                controller.update(password_length=value) if job_active else self.output_length_var.set(value)
             match = re.match(r"Guess\.Queue\.+:\s*(.+)", line, re.I)
             if match:
-                self.output_queue_var.set(self.short_metric(match.group(1).strip(), 32))
+                value = self.short_metric(match.group(1).strip(), 32)
+                controller.update(queue=value) if job_active else self.output_queue_var.set(value)
             loaded = re.search(r"Loaded\s+(\d+)\s+password hash", line, re.I)
             if loaded:
-                self.output_queue_var.set(f"已載入 {loaded.group(1)} hash")
-            if "已輸出密碼：" in line or "_cracked.txt" in line:
+                value = f"已載入 {loaded.group(1)} hash"
+                controller.update(queue=value) if job_active else self.output_queue_var.set(value)
+            if ("已輸出密碼：" in line or "_cracked.txt" in line) and not job_active:
                 self.output_file_var.set(line)
-        self.refresh_output_overview()
+        if not job_active:
+            self.refresh_output_overview()
 
     def render_output_snapshot(self, snapshot: DashboardSnapshot) -> None:
         self.output_status_var.set(snapshot.status)
@@ -1163,7 +1307,12 @@ class PasswordToolGUI(tk.Tk):
         self._save_config()
         self.refresh_converters()
         self.sync_config_to_ui()
-        if self.config_load_error:
+        controller = self.__dict__.get("job_controller")
+        if controller and controller.state not in {
+            JobState.IDLE, JobState.SUCCEEDED, JobState.EXHAUSTED, JobState.FAILED, JobState.CANCELLED
+        }:
+            self.render_job(controller.snapshot)
+        elif self.config_load_error:
             self.quick_status.set("工具環境已就緒；設定載入失敗，目前使用預設設定。")
         else:
             self.quick_status.set("工具環境已就緒。可直接選擇檔案開始。")
@@ -1355,46 +1504,50 @@ class PasswordToolGUI(tk.Tk):
         if not src.exists():
             messagebox.showerror("檔案不存在", "請先選擇要破解的檔案。")
             return
-        if self.runner.running() or any(
-            thread and thread.is_alive() for thread in (self.extract_thread, self.auto_thread)
-        ):
+        if self.runner.running() or (self.extract_thread and self.extract_thread.is_alive()):
             messagebox.showwarning("已有工作執行中", "請先停止或等待目前工作完成。")
             return
-        self.config_data.default_wordlist = Path(value) if (value := self.quick_wordlist.get().strip()) else None
-        self.config_data.combo_wordlist = Path(value) if (value := self.quick_combo_wordlist.get().strip()) else None
-        self.config_data.combo_key = self.quick_combo_key.get().strip()
-        self.config_data.attack_strategy = ATTACK_STRATEGY_OPTIONS[self.quick_strategy.get()]
+        try:
+            if self.job_controller.state in {
+                JobState.SUCCEEDED, JobState.EXHAUSTED, JobState.FAILED, JobState.CANCELLED
+            }:
+                self.job_controller.reset()
+            wordlist = self.quick_wordlist.get().strip()
+            converter = self.converter_for_input(src)
+            self.config_data.default_wordlist = Path(wordlist) if wordlist else None
+            self.config_data.combo_wordlist = Path(value) if (value := self.quick_combo_wordlist.get().strip()) else None
+            self.config_data.combo_key = self.quick_combo_key.get().strip()
+            self.config_data.attack_strategy = ATTACK_STRATEGY_OPTIONS[self.quick_strategy.get()]
+            settings = {
+                "auto_download": bool(self.quick_auto_download.get()),
+                "converter": converter,
+                "safe_copy": bool(self.extract_safe_copy.get()),
+                "expand_wordlist": bool(self.quick_expand_wordlist.get()),
+                "hashcat_mask": self.hashcat_mask.get().strip(),
+                "john_mask": self.john_mask.get().strip(),
+            }
+            paths = self._auto_output_paths(src)
+            self.job_controller.start(
+                JobContext(
+                    source_file=src,
+                    detected_type=src.suffix.lower() or "raw-hash",
+                    converter=converter or None,
+                    output_paths=paths,
+                    cancellation_token=self.conversion_cancel,
+                )
+            )
+        except JobAlreadyRunningError:
+            messagebox.showwarning("已有工作執行中", "請先停止或等待目前工作完成。")
+            return
+        except Exception as exc:
+            messagebox.showerror("無法開始工作", str(exc))
+            return
         self.sync_config_to_ui()
         self._save_config()
         self.notebook.select(self.output_tab)
-        self.quick_status.set("自動流程執行中。")
-        self.output_job_var.set(src.name)
-        self.output_status_var.set("準備中")
-        self.output_progress_var.set("0%")
-        self.output_elapsed_var.set("-")
-        self.output_speed_var.set("-")
-        self.output_temp_var.set("-")
-        self.output_recovered_var.set("-")
-        self.output_length_var.set("-")
-        self.output_queue_var.set("-")
-        self.output_candidate_var.set("-")
-        self.output_mode_var.set("-")
-        output_dir = self.config_data.output_dir
-        self.output_file_var.set(str(result_dir_for_source(src, output_dir)))
-        self.refresh_output_overview()
-        self.progress_value.set(0)
-        self.set_cracked_passwords([])
-        wordlist = self.quick_wordlist.get().strip()
-        settings = {
-            "auto_download": bool(self.quick_auto_download.get()),
-            "converter": self.converter_for_input(src),
-            "safe_copy": bool(self.extract_safe_copy.get()),
-            "expand_wordlist": bool(self.quick_expand_wordlist.get()),
-            "hashcat_mask": self.hashcat_mask.get().strip(),
-            "john_mask": self.john_mask.get().strip(),
-        }
-        self.conversion_cancel.clear()
-        self.auto_thread = threading.Thread(target=self._auto_workflow, args=(src, wordlist, settings), daemon=True)
+        self.auto_thread = threading.Thread(
+            target=self._auto_workflow, args=(src, wordlist, settings), daemon=True
+        )
         self.auto_thread.start()
 
     def _auto_output_paths(self, src: Path) -> dict[str, Path]:
@@ -1508,12 +1661,12 @@ class PasswordToolGUI(tk.Tk):
         mode_label: str,
         manual_wordlist: str,
         settings: dict[str, object],
-    ) -> list[dict[str, object]]:
+    ) -> list[JobStage]:
         strategy = self.config_data.attack_strategy
         combo_file = str(self.config_data.combo_wordlist or "")
         combo_key = self.config_data.combo_key.strip()
         dictionary_sources = self.collect_dictionary_sources(manual_wordlist)
-        stages: list[dict[str, object]] = []
+        stages: list[JobStage] = []
 
         def add_stage(stage_name: str, wordlist: str, suffix: str) -> None:
             candidate_count = "-"
@@ -1537,18 +1690,19 @@ class PasswordToolGUI(tk.Tk):
                 )
                 cwd = str(self.config_data.john_run_dir) if self.config_data.john_run_dir else None
             stages.append(
-                {
-                    "name": f"{engine} {stage_name}",
-                    "cmd": cmd,
-                    "cwd": cwd,
-                    "session_log": paths["session"],
-                    "engine": engine,
-                    "hash_file": hash_file,
-                    "mode_label": mode_label,
-                    "cracked": paths["cracked"],
-                    "stage_name": stage_name,
-                    "candidate_count": candidate_count,
-                }
+                JobStage(
+                    id=f"{engine}-{suffix}",
+                    display_name=f"{engine} {stage_name}",
+                    engine=engine,
+                    attack_type=suffix,
+                    command=tuple(cmd),
+                    cwd=cwd,
+                    candidate_count=candidate_count,
+                    session_log=paths["session"],
+                    hash_file=hash_file,
+                    mode_label=mode_label,
+                    cracked_file=paths["cracked"],
+                )
             )
 
         library_wordlist = ""
@@ -1574,17 +1728,31 @@ class PasswordToolGUI(tk.Tk):
 
     def _auto_workflow(self, src: Path, wordlist: str, settings: dict[str, object]) -> None:
         try:
+            self.job_controller.transition(JobState.CHECKING_ENV)
             self._ensure_tools_worker(bool(settings["auto_download"]))
+            if self.conversion_cancel.is_set():
+                raise CancelledError("自動流程已停止")
             paths = self._auto_output_paths(src)
 
             converter = str(settings["converter"])
             if converter:
-                john_text = self.convert_file_to_hash_text(src, converter, bool(settings["safe_copy"]))
+                self.job_controller.transition(JobState.CONVERTING)
+                try:
+                    john_text = self.convert_file_to_hash_text(src, converter, bool(settings["safe_copy"]))
+                except InterruptedError:
+                    raise
+                except Exception as exc:
+                    raise ConverterError("雜湊轉換失敗", details=f"{type(exc).__name__}: {exc}") from exc
             else:
-                john_text = self.read_hash_text(src)
+                try:
+                    john_text = self.read_hash_text(src)
+                except Exception as exc:
+                    raise UnsupportedFormatError(str(exc), details=f"{type(exc).__name__}: {exc}") from exc
 
             if not john_text.strip():
-                raise RuntimeError("沒有取得可破解的雜湊。")
+                raise UnsupportedFormatError("沒有取得可破解的雜湊。")
+
+            self.job_controller.transition(JobState.BUILDING_CANDIDATES)
 
             paths["cracked"].unlink(missing_ok=True)
             paths["john_hash"].write_text(prepare_hash_output(john_text, "john"), encoding="utf-8", newline="\n")
@@ -1597,37 +1765,73 @@ class PasswordToolGUI(tk.Tk):
                 candidates = "、".join(detection.candidates)
                 message = f"雜湊格式無法唯一判定，請在進階工具選擇 Hashcat 模式（候選：{candidates}）。"
                 self.enqueue_log(f"\n[自動流程] {message}\n")
-                self.enqueue_status(message)
-                self.enqueue_ui(lambda: self.quick_status.set(message))
-                return
+                raise UnsupportedFormatError(message)
             if mode_label and self.config_data.hashcat_path and self.config_data.hashcat_path.exists():
-                stages = self.build_auto_attack_stages(src, paths, "hashcat", paths["hashcat_hash"], mode_label, wordlist, settings)
-                self.enqueue_ui(lambda: self.start_auto_stages(stages, 0))
+                engine = "hashcat"
+                stages = self.build_auto_attack_stages(
+                    src, paths, engine, paths["hashcat_hash"], mode_label, wordlist, settings
+                )
             elif self.config_data.john_path and self.config_data.john_path.exists():
+                engine = "john"
                 if detection.preferred_engine == "john" and detection.format_name:
                     self.enqueue_log(
                         f"\n[自動流程] 無法安全判定 {detection.format_name} 的 Hashcat 模式，改用 John。\n"
                     )
-                stages = self.build_auto_attack_stages(src, paths, "john", paths["john_hash"], "", wordlist, settings)
-                self.enqueue_ui(lambda: self.start_auto_stages(stages, 0))
+                stages = self.build_auto_attack_stages(
+                    src, paths, engine, paths["john_hash"], "", wordlist, settings
+                )
             elif detection.preferred_engine == "john" and detection.format_name:
-                raise RuntimeError(
+                raise MissingToolError(
                     f"無法安全判定 {detection.format_name} 的 Hashcat 模式；請設定 John 或在進階工具手動選擇模式。"
                 )
             else:
-                raise SetupError("找不到可用的 hashcat 或 John。", HASHCAT_DOWNLOAD_PAGE)
+                raise MissingToolError("找不到可用的 hashcat 或 John。", details=HASHCAT_DOWNLOAD_PAGE)
+            if self.conversion_cancel.is_set():
+                raise CancelledError("自動流程已停止")
+            self.enqueue_ui(lambda stages=stages, engine=engine: self._begin_auto_stages(stages, engine))
         except InterruptedError as exc:
             self.enqueue_log(f"\n[自動流程停止] {exc}\n")
-            self.enqueue_status("自動流程已停止")
+            self._cancel_auto_job(CancelledError(str(exc)))
+        except CancelledError as exc:
+            self.enqueue_log(f"\n[自動流程停止] {exc}\n")
+            self._cancel_auto_job(exc)
         except SetupError as exc:
             message = str(exc)
             if exc.url:
                 message += f"\n下載網址：{exc.url}"
             self.enqueue_log(f"\n[自動流程錯誤] {message}\n")
-            self.enqueue_status("自動流程失敗")
+            self._fail_auto_job(MissingToolError(str(exc), details=exc.url or None))
+        except (MissingToolError, UnsupportedFormatError, ConverterError, InvalidDictionaryError) as exc:
+            self.enqueue_log(f"\n[自動流程錯誤] {exc}\n")
+            self._fail_auto_job(exc)
+        except (FileNotFoundError, ValueError) as exc:
+            self.enqueue_log(f"\n[自動流程錯誤] {exc}\n")
+            self._fail_auto_job(InvalidDictionaryError(str(exc), details=f"{type(exc).__name__}: {exc}"))
         except Exception as exc:
             self.enqueue_log(f"\n[自動流程錯誤] {exc}\n")
-            self.enqueue_status("自動流程失敗")
+            self._fail_auto_job(EngineRuntimeError(str(exc), details=f"{type(exc).__name__}: {exc}"))
+
+    def _begin_auto_stages(self, stages: list[JobStage], engine: str) -> None:
+        if self.job_controller.state == JobState.STOPPING:
+            self.job_controller.complete_stage(StageResult.CANCELLED, error=CancelledError("工作已取消"))
+            return
+        self.job_controller.update(stages=stages, selected_engine=engine)
+        self.job_controller.transition(JobState.RUNNING)
+        self.start_auto_stages()
+
+    def _fail_auto_job(self, error: Exception) -> None:
+        if self.job_controller.state == JobState.STOPPING:
+            self._cancel_auto_job(CancelledError(str(error)))
+        elif self.job_controller.state not in {
+            JobState.SUCCEEDED, JobState.EXHAUSTED, JobState.FAILED, JobState.CANCELLED
+        }:
+            self.job_controller.fail(error)
+
+    def _cancel_auto_job(self, error: CancelledError) -> None:
+        if self.job_controller.state not in {JobState.STOPPING, JobState.CANCELLED}:
+            self.job_controller.request_cancel()
+        if self.job_controller.state == JobState.STOPPING:
+            self.job_controller.complete_stage(StageResult.CANCELLED, error=error)
 
     def convert_file_to_hash_text(self, src: Path, converter: str, safe_copy: bool) -> str:
         temp: tempfile.TemporaryDirectory[str] | None = None
@@ -1695,7 +1899,6 @@ class PasswordToolGUI(tk.Tk):
 
         if wordlist:
             length_summary = "依字典候選"
-            self.output_candidate_var.set(candidate_count)
         elif mask_text:
             mask_path = Path(mask_text)
             if mask_path.exists():
@@ -1706,8 +1909,6 @@ class PasswordToolGUI(tk.Tk):
                     length_summary = "遮罩檔"
             else:
                 length_summary = f"{estimate_mask_length(mask_text)} 位"
-            self.output_candidate_var.set("遮罩即時計算")
-        self.output_length_var.set(length_summary)
 
         plan = [
             "",
@@ -1731,52 +1932,80 @@ class PasswordToolGUI(tk.Tk):
         ]
         return "\n".join(plan)
 
-    def start_auto_stages(self, stages: list[dict[str, object]], index: int) -> None:
-        if index >= len(stages):
-            self.quick_status.set("自動流程已完成。")
+    def start_auto_stages(self) -> None:
+        if self.job_controller.state == JobState.BUILDING_CANDIDATES:
+            self.job_controller.transition(JobState.RUNNING)
+        snapshot = self.job_controller.snapshot
+        stage = snapshot.current_stage
+        if stage is None:
+            self.job_controller.complete_stage(StageResult.EXHAUSTED)
             return
-        stage = stages[index]
+        candidate_count = str(stage.candidate_count or "-")
+        self.job_controller.update(
+            candidate_count=candidate_count,
+            mode=stage.mode_label or stage.engine,
+            current_candidate="遮罩即時計算" if not stage.candidate_count else None,
+        )
 
-        def continue_stages(code: int, cancelled: bool) -> None:
-            if cancelled:
-                self.quick_status.set("自動流程已停止。")
+        def continue_stages(code: int, cancelled: bool, show_error: Exception | None = None) -> None:
+            if cancelled or self.job_controller.state == JobState.STOPPING:
+                if self.job_controller.state != JobState.STOPPING:
+                    self.job_controller.request_cancel()
+                self.job_controller.complete_stage(
+                    StageResult.CANCELLED, exit_code=code, error=CancelledError("工作已取消")
+                )
                 return
-            if code != 0 and not (stage["engine"] == "hashcat" and code == 1):
-                self.quick_status.set(f"自動流程失敗（結束代碼 {code}）。")
+            if show_error:
+                self.job_controller.complete_stage(StageResult.FAILED, exit_code=code, error=show_error)
                 return
-            cracked = Path(stage["cracked"])
+            if code != 0 and not (stage.engine == "hashcat" and code == 1):
+                self.job_controller.complete_stage(
+                    StageResult.FAILED,
+                    exit_code=code,
+                    error=EngineRuntimeError(
+                        f"{stage.display_name} 執行失敗",
+                        command=stage.command,
+                        exit_code=code,
+                    ),
+                )
+                return
+            cracked = stage.cracked_file or Path()
             if cracked.exists() and cracked.read_text(encoding="utf-8", errors="replace").strip():
-                self.quick_status.set("已找到密碼，停止後續破解階段。")
+                passwords = cracked.read_text(encoding="utf-8", errors="replace").splitlines()
+                self.job_controller.update(recovered_passwords=passwords, recovered_count=f"{len(passwords)} 筆")
+                self.job_controller.complete_stage(StageResult.FOUND, exit_code=code)
                 return
-            self.start_auto_stages(stages, index + 1)
+            next_snapshot = self.job_controller.complete_stage(StageResult.EXHAUSTED, exit_code=code)
+            if next_snapshot.state == JobState.BUILDING_CANDIDATES:
+                self.start_auto_stages()
 
-        self.start_auto_command(
-            str(stage["name"]),
-            list(stage["cmd"]),
-            stage["cwd"] or None,
-            Path(stage["session_log"]),
-            str(stage["engine"]),
-            Path(stage["hash_file"]),
-            str(stage["mode_label"]),
-            Path(stage["cracked"]),
-            candidate_count=str(stage.get("candidate_count", "-")),
+        started = self.start_auto_command(
+            stage.display_name,
+            list(stage.command),
+            str(stage.cwd) if stage.cwd else None,
+            stage.session_log or Path("session.log"),
+            stage.engine,
+            stage.hash_file or Path(),
+            stage.mode_label,
+            stage.cracked_file or Path(),
+            candidate_count=candidate_count,
             on_finish=continue_stages,
         )
+        if not started:
+            self.job_controller.complete_stage(
+                StageResult.FAILED,
+                error=EngineLaunchError(
+                    f"{stage.display_name} 啟動失敗", command=stage.command
+                ),
+            )
 
     def start_auto_command(
         self, name: str, cmd: list[str], cwd: str | None, session_log: Path, engine: str,
         hash_file: Path, mode_label: str, cracked: Path, candidate_count: str = "-", on_finish=None,
-    ) -> None:
-        self.quick_status.set(f"{name} 執行中，結果會寫入 {cracked.name}")
-        self.output_job_var.set(name)
-        self.output_status_var.set("執行中")
-        self.output_mode_var.set(mode_label or engine)
-        self.output_file_var.set(str(cracked))
-        self.refresh_output_overview()
+    ) -> bool:
         plan = self.describe_auto_attack_plan(
             name, cmd, cwd, session_log, engine, hash_file, mode_label, cracked, candidate_count
         )
-        self.refresh_output_overview()
         self.log(plan)
         try:
             session_log.parent.mkdir(parents=True, exist_ok=True)
@@ -1787,14 +2016,14 @@ class PasswordToolGUI(tk.Tk):
         def finish(code: int, cancelled: bool) -> None:
             if cancelled:
                 if on_finish:
-                    on_finish(code, True)
+                    on_finish(code, True, None)
                 return
             self.finalize_auto_cracked(
                 engine,
                 hash_file,
                 mode_label,
                 cracked,
-                (lambda: on_finish(code, False)) if on_finish else None,
+                (lambda error: on_finish(code, False, error)) if on_finish else None,
             )
 
         started = self.runner.start(
@@ -1805,9 +2034,8 @@ class PasswordToolGUI(tk.Tk):
             on_finish=finish,
         )
         if not started:
-            self.quick_status.set(f"{name} 啟動失敗，請查看詳細記錄。")
-            self.output_status_var.set("失敗")
-            self.refresh_output_overview()
+            return False
+        return True
 
     def _start_capture_task(self, operation, on_success, on_error) -> bool:
         capture_thread = self.__dict__.get("capture_thread")
@@ -1861,42 +2089,43 @@ class PasswordToolGUI(tk.Tk):
     def _apply_auto_cracked_result(
         self, engine: str, cracked: Path, proc: subprocess.CompletedProcess[bytes], on_complete=None
     ) -> None:
+        result_error: Exception | None = None
         try:
             shown = clean_output(decode_bytes(proc.stdout))
             stderr = clean_output(decode_bytes(proc.stderr))
             if stderr:
                 self.log(f"\n[破解結果訊息]\n{stderr}\n")
             if proc.returncode != 0:
-                self.quick_status.set(f"破解結果讀取失敗（結束代碼 {proc.returncode}）。")
                 self.log(f"\n[破解結果錯誤] --show 結束代碼 {proc.returncode}\n")
+                result_error = EngineRuntimeError(
+                    "破解結果讀取失敗", exit_code=proc.returncode, stderr=stderr or None
+                )
             else:
                 passwords = extract_passwords_from_show(shown, engine, plaintext_only=engine == "hashcat")
                 if passwords:
                     existing = cracked.read_text(encoding="utf-8", errors="replace").splitlines() if cracked.exists() else []
                     merged = list(dict.fromkeys([line for line in existing + passwords if line.strip()]))
                     cracked.write_text("\n".join(merged) + "\n", encoding="utf-8", newline="\n")
-                    self.set_cracked_passwords(merged, cracked)
                     self.log(f"\n已輸出密碼：{cracked}\n")
-                    self.quick_status.set(f"已輸出密碼：{cracked.name}")
                 elif cracked.exists() and cracked.read_text(encoding="utf-8", errors="replace").strip():
-                    existing = cracked.read_text(encoding="utf-8", errors="replace").splitlines()
-                    self.set_cracked_passwords(existing, cracked)
                     self.log(f"\n已輸出密碼：{cracked}\n")
-                    self.quick_status.set(f"已輸出密碼：{cracked.name}")
-                else:
-                    self.set_cracked_passwords([], cracked)
-                    self.quick_status.set("尚未破解出密碼。")
         except Exception as exc:
-            self._handle_auto_cracked_error(exc)
+            result_error = EngineRuntimeError(
+                "破解結果處理失敗", details=f"{type(exc).__name__}: {exc}"
+            )
+            self.log(f"\n[輸出密碼錯誤] {exc}\n")
         finally:
             if on_complete:
-                on_complete()
+                on_complete(result_error)
 
     def _handle_auto_cracked_error(self, exc: Exception, on_complete=None) -> None:
-        self.quick_status.set("破解結果讀取失敗。")
         self.log(f"\n[輸出密碼錯誤] {exc}\n")
         if on_complete:
-            on_complete()
+            on_complete(
+                exc if isinstance(exc, EngineRuntimeError) else EngineRuntimeError(
+                    "破解結果讀取失敗", details=f"{type(exc).__name__}: {exc}"
+                )
+            )
 
     def converter_for_input(self, input_path: Path) -> str:
         chosen = self.extract_converter.get()
@@ -2364,6 +2593,15 @@ class PasswordToolGUI(tk.Tk):
             self.log(f"\n[健康檢查] {name}: {first}\n")
 
     def stop_current_work(self) -> None:
+        controller = self.__dict__.get("job_controller")
+        if controller and controller.state in {
+            JobState.PREPARING,
+            JobState.CHECKING_ENV,
+            JobState.CONVERTING,
+            JobState.BUILDING_CANDIDATES,
+            JobState.RUNNING,
+        }:
+            controller.request_cancel()
         workers = [
             thread for thread in (
                 self.extract_thread,

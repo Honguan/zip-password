@@ -50,7 +50,7 @@ class WordlistFlowTests(TestCase):
         gui.prepare_auto_wordlist.assert_called_once_with(
             "merged.txt", Path("expanded_wordlist.txt"), True
         )
-        self.assertEqual(stages[0]["stage_name"], "字典破解")
+        self.assertEqual(stages[0].display_name, "hashcat 字典破解")
         self.assertIn("expanded.txt", builder.call_args_list[0].args)
 
     def test_default_order_keeps_the_merged_dictionary_when_disabled(self):
@@ -90,7 +90,10 @@ class WordlistFlowTests(TestCase):
                         Path("input.zip"), self.paths(), "hashcat", Path("hash.txt"), "0 - MD5", "source.txt", settings
                     )
 
-                self.assertEqual([stage["stage_name"] for stage in stages], stage_names)
+                self.assertEqual(
+                    [stage.display_name.removeprefix("hashcat ") for stage in stages],
+                    stage_names,
+                )
 
     def test_source_strategies_reject_missing_candidates(self):
         settings = {"expand_wordlist": False, "hashcat_mask": "", "john_mask": ""}
