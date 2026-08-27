@@ -14,6 +14,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 import ctypes
 import hashlib
 import urllib.parse
@@ -741,6 +742,7 @@ class CommandRunner:
 
     def start(self, name: str, args: list[str], cwd: str | None = None, log_path: Path | None = None, on_finish=None) -> bool:
         if not self.job_lock.acquire(blocking=False):
+            self.app.log(f"\n[啟動失敗] {name}：已有工作執行中。\n")
             messagebox.showwarning("已有工作執行中", "請先停止或等待目前工作完成。")
             return False
         creationflags, startupinfo = hidden_startup()
@@ -756,6 +758,7 @@ class CommandRunner:
             )
         except Exception as exc:
             self.job_lock.release()
+            self.app.log(f"\n[啟動失敗] {name}\n{traceback.format_exc()}\n")
             messagebox.showerror("啟動失敗", str(exc))
             return False
         with self.lock:
@@ -2346,13 +2349,17 @@ class PasswordToolGUI(tk.Tk):
             if on_finish:
                 on_finish(code, cancelled)
 
-        self.runner.start(
+        started = self.runner.start(
             name,
             cmd,
             cwd=cwd,
             log_path=session_log,
             on_finish=finish,
         )
+        if not started:
+            self.quick_status.set(f"{name} 啟動失敗，請查看詳細記錄。")
+            self.output_status_var.set("失敗")
+            self.refresh_output_overview()
 
     def finalize_auto_cracked(self, engine: str, hash_file: Path, mode_label: str, cracked: Path) -> None:
         try:

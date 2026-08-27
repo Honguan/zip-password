@@ -78,6 +78,21 @@ class CommandRunnerTests(TestCase):
 
         runner.job_lock.release()
 
+    def test_start_reports_launch_exception_and_releases_job(self):
+        app = Mock()
+        runner = APP.CommandRunner(app)
+
+        with (
+            patch.object(APP.subprocess, "Popen", side_effect=FileNotFoundError("missing.exe")),
+            patch.object(APP.messagebox, "showerror"),
+        ):
+            started = runner.start("hashcat", ["missing.exe"])
+
+        self.assertFalse(started)
+        self.assertIn("FileNotFoundError: missing.exe", app.log.call_args.args[0])
+        self.assertTrue(runner.job_lock.acquire(blocking=False))
+        runner.job_lock.release()
+
     def test_stopping_capture_terminates_it_and_reports_stopped(self):
         app = Mock()
         runner = APP.CommandRunner(app)
