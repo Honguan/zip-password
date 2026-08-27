@@ -336,7 +336,7 @@ def read_config_file(path: Path) -> dict[str, str]:
     return {str(k): str(v) for k, v in data.items()}
 
 
-def load_config() -> dict[str, str]:
+def load_config() -> tuple[dict[str, str], str]:
     cfg = default_config()
     saved: dict[str, str] = {}
     loaded_path = next((path for path in config_search_paths() if path.exists()), None)
@@ -345,8 +345,9 @@ def load_config() -> dict[str, str]:
             data = read_config_file(loaded_path)
             saved = data
             cfg = merge_config(cfg, data)
-        except Exception:
-            pass
+        except Exception as exc:
+            error = f"{loaded_path}：{type(exc).__name__}: {exc}"
+            return cfg, error
     detected = find_tool_paths(saved)
     for key, value in detected.items():
         if value:
@@ -356,7 +357,7 @@ def load_config() -> dict[str, str]:
             save_config(cfg)
         except Exception:
             pass
-    return cfg
+    return cfg, ""
 
 
 def save_config(cfg: dict[str, str]) -> None:
@@ -930,11 +931,7 @@ class PasswordToolGUI(tk.Tk):
         self.title("密碼工具 GUI")
         self.geometry("1400x900")
         self.minsize(1100, 720)
-        self.config_data = load_config()
-        try:
-            save_config(self.config_data)
-        except Exception:
-            pass
+        self.config_data, self.config_load_error = load_config()
         self.log_queue: queue.Queue[str] = queue.Queue(maxsize=UI_QUEUE_LIMIT)
         self.status_queue: queue.Queue[str] = queue.Queue(maxsize=UI_QUEUE_LIMIT)
         self.ui_queue: queue.Queue[object] = queue.Queue()
@@ -948,6 +945,8 @@ class PasswordToolGUI(tk.Tk):
         self.setting_vars: dict[str, tk.StringVar] = {}
         self._build_style()
         self._build_ui()
+        if self.config_load_error:
+            self.after(0, self._show_config_load_error)
         self.refresh_converters()
         self.after(80, self._drain_queues)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -1802,10 +1801,13 @@ class PasswordToolGUI(tk.Tk):
             self._tools_setup_lock.release()
 
     def apply_detected_tools_to_ui(self) -> None:
-        save_config(self.config_data)
+        self._save_config()
         self.refresh_converters()
         self.sync_config_to_ui()
-        self.quick_status.set("工具環境已就緒。可直接選擇檔案開始。")
+        if self.config_load_error:
+            self.quick_status.set("工具環境已就緒；設定載入失敗，目前使用預設設定。")
+        else:
+            self.quick_status.set("工具環境已就緒。可直接選擇檔案開始。")
 
     def download_hashcat(self) -> str:
         url = HASHCAT_ARCHIVE_URL
@@ -1902,6 +1904,23 @@ class PasswordToolGUI(tk.Tk):
         if hasattr(self, "john_wordlist"):
             self.john_wordlist.set(self.config_data.get("default_wordlist", ""))
 
+    def _save_config(self, explicit: bool = False) -> bool:
+        if self.config_load_error and not explicit:
+            return False
+        save_config(self.config_data)
+        if explicit:
+            self.config_load_error = ""
+        return True
+
+    def _show_config_load_error(self) -> None:
+        summary = "設定載入失敗，目前使用預設設定；原設定檔未修改。"
+        self.quick_status.set(summary)
+        self.set_status("設定載入失敗，使用預設設定")
+        messagebox.showwarning(
+            "設定載入失敗",
+            f"{summary}\n\n原因：{self.config_load_error}\n\n只有按下「儲存設定」後才會覆寫設定檔。",
+        )
+
     def open_output_folder(self) -> None:
         out_dir = Path(self.config_data.get("output_dir", str(RESULTS_DIR)) or RESULTS_DIR)
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -1912,7 +1931,8 @@ class PasswordToolGUI(tk.Tk):
 
     def open_config_file(self) -> None:
         try:
-            save_config(self.config_data)
+            if not CONFIG_PATH.exists():
+                self._save_config()
             os.startfile(str(CONFIG_PATH))
         except Exception as exc:
             messagebox.showerror("無法開啟設定檔", str(exc))
@@ -1926,7 +1946,7 @@ class PasswordToolGUI(tk.Tk):
             for key in default_config():
                 if key in data:
                     self.config_data[key] = data[key]
-            save_config(self.config_data)
+            self._save_config(explicit=True)
             self.sync_config_to_ui()
             self.refresh_converters()
             self.set_status("設定檔已匯入")
@@ -1968,7 +1988,7 @@ class PasswordToolGUI(tk.Tk):
         for key, var in self.setting_vars.items():
             if key in self.config_data:
                 var.set(self.config_data[key])
-        save_config(self.config_data)
+        self._save_config()
         self.notebook.select(self.output_tab)
         self.quick_status.set("自動流程執行中。")
         self.output_job_var.set(src.name)
@@ -2827,7 +2847,7 @@ class PasswordToolGUI(tk.Tk):
         except Exception as exc:
             messagebox.showerror("載入失敗", str(exc))
 
-    def apply_settings(self) -> None:
+    def apply_settings(self, persist: bool = False) -> None:
         for key, var in self.setting_vars.items():
             self.config_data[key] = var.get().strip()
         if hasattr(self, "quick_follow_order"):
@@ -2835,13 +2855,14 @@ class PasswordToolGUI(tk.Tk):
             self.config_data["default_wordlist"] = self.quick_wordlist.get().strip()
             self.config_data["combo_wordlist"] = self.quick_combo_wordlist.get().strip()
             self.config_data["combo_key"] = self.quick_combo_key.get().strip()
-        save_config(self.config_data)
+        if persist:
+            self._save_config(explicit=True)
         Path(self.config_data.get("output_dir", str(RESULTS_DIR)) or RESULTS_DIR).mkdir(parents=True, exist_ok=True)
         self.refresh_converters()
         self.sync_config_to_ui()
 
     def save_settings(self) -> None:
-        self.apply_settings()
+        self.apply_settings(persist=True)
         messagebox.showinfo("已儲存", "設定已儲存。")
 
     def detect_settings(self) -> None:
