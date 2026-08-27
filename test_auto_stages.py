@@ -38,6 +38,19 @@ class AutoStagesTests(TestCase):
         gui.set_cracked_passwords = Mock()
         return gui
 
+    def make_start_gui(self):
+        gui = object.__new__(APP.PasswordToolGUI)
+        gui.quick_status = Value()
+        gui.output_job_var = Value()
+        gui.output_status_var = Value()
+        gui.output_mode_var = Value()
+        gui.output_file_var = Value()
+        gui.refresh_output_overview = Mock()
+        gui.describe_auto_attack_plan = Mock(return_value="plan")
+        gui.log = Mock()
+        gui.runner = Mock()
+        return gui
+
     def stages(self, cracked):
         return [
             {
@@ -145,6 +158,22 @@ class AutoStagesTests(TestCase):
 
         self.assertEqual(gui.output_candidate_var.value, "100,000 筆")
         self.assertIn("候選規模：100,000 筆", plan)
+
+    def test_launch_failure_updates_auto_stage_status(self):
+        with TemporaryDirectory() as temp:
+            gui = self.make_start_gui()
+            gui.runner.start.return_value = False
+            callback = Mock()
+
+            gui.start_auto_command(
+                "hashcat 字典", ["missing.exe"], None, Path(temp) / "session.log",
+                "hashcat", Path("hash.txt"), "0 - MD5", Path("cracked.txt"),
+                on_finish=callback,
+            )
+
+        self.assertIn("啟動失敗", gui.quick_status.value)
+        self.assertEqual(gui.output_status_var.value, "失敗")
+        callback.assert_not_called()
 
     def test_large_dictionary_count_can_be_cancelled(self):
         cancel = APP.threading.Event()
