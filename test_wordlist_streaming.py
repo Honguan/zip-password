@@ -23,18 +23,22 @@ class WordlistStreamingTests(TestCase):
             self.assertEqual(count, 0)
             self.assertEqual(dest.read_text(encoding="utf-8"), "")
 
-    def test_limit_stops_the_source_iterator_immediately(self):
+    def test_limit_stops_only_derived_candidates(self):
         source = Mock()
 
         def lines():
             yield b"Alpha\n"
-            raise AssertionError("read past expansion limit")
+            yield b"final-secret\n"
 
         source.open.return_value = nullcontext(lines())
         with TemporaryDirectory() as temp:
-            count = APP.build_expanded_wordlist(source, Path(temp) / "expanded.txt", limit=2)
+            dest = Path(temp) / "expanded.txt"
+            count = APP.build_expanded_wordlist(source, dest, limit=2)
+            candidates = dest.read_text(encoding="utf-8").splitlines()
 
-        self.assertEqual(count, 2)
+        self.assertEqual(count, 4)
+        self.assertIn("Alpha", candidates)
+        self.assertIn("final-secret", candidates)
 
     def test_large_dictionary_is_not_read_into_one_buffer(self):
         with TemporaryDirectory() as temp:
@@ -47,7 +51,44 @@ class WordlistStreamingTests(TestCase):
             ):
                 count = APP.build_expanded_wordlist(source, dest, limit=100)
 
-        self.assertEqual(count, 100)
+            self.assertGreaterEqual(count, 100_000)
+            with dest.open(encoding="utf-8") as output:
+                self.assertIn("candidate-99999", (line.strip() for line in output))
+
+    def test_merged_sources_keep_later_original_candidates(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            first = root / "first.txt"
+            second = root / "second.txt"
+            merged = root / "merged.txt"
+            expanded = root / "expanded.txt"
+            first.write_text("Alpha\n", encoding="utf-8")
+            second.write_text("later-password\n", encoding="utf-8")
+            APP.merge_wordlist_files([first, second], merged)
+
+            APP.build_expanded_wordlist(merged, expanded, limit=1)
+
+            candidates = expanded.read_text(encoding="utf-8").splitlines()
+            self.assertIn("Alpha", candidates)
+            self.assertIn("later-password", candidates)
+
+    def test_expansion_stops_when_cancelled(self):
+        source = Mock()
+        cancel = APP.threading.Event()
+
+        def lines():
+            yield b"Alpha\n"
+            cancel.set()
+            yield b"Beta\n"
+
+        source.open.return_value = nullcontext(lines())
+        with TemporaryDirectory() as temp:
+            dest = Path(temp) / "expanded.txt"
+            APP.build_expanded_wordlist(source, dest, cancel=cancel)
+            candidates = dest.read_text(encoding="utf-8").splitlines()
+
+        self.assertIn("Alpha", candidates)
+        self.assertNotIn("Beta", candidates)
 
     def test_many_tokens_have_bounded_expansion_without_character_splitting(self):
         with TemporaryDirectory() as temp:
