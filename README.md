@@ -16,7 +16,7 @@ cd zip-password
 py -3.10 PasswordToolsGUI.pyw
 ```
 
-主要程式為 `PasswordToolsGUI.pyw`；設定檔為 `password_gui_config.json`。下載的工具、字典與執行結果會建立在本機目錄中，不應提交至版本控制。
+`PasswordToolsGUI.pyw` 是啟動入口；Tk 應用程式與設定、執行器、工具、字典、輸出解析及工作流程服務位於 `password_gui/`。設定檔為 `password_gui_config.json`。下載的工具、字典與執行結果會建立在本機目錄中，不應提交至版本控制。
 
 ## 測試與發行
 

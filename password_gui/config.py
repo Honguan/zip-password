@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields, replace
 from enum import Enum
+import json
 from pathlib import Path
 from typing import Mapping
 
@@ -92,3 +93,26 @@ class AppConfig:
             if key in detected:
                 value = detected[key]
                 setattr(self, key, Path(value) if value else None)
+
+
+def read_config_file(path: Path) -> dict[str, object]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("設定檔格式不是 JSON object")
+    return data
+
+
+def load_config_file(
+    defaults: AppConfig, search_paths: list[Path]
+) -> tuple[AppConfig, str, Path | None]:
+    loaded_path = next((path for path in search_paths if path.exists()), None)
+    if not loaded_path:
+        return defaults, "", None
+    try:
+        return AppConfig.from_mapping(read_config_file(loaded_path), defaults), "", loaded_path
+    except Exception as exc:
+        return defaults, f"{loaded_path}：{type(exc).__name__}: {exc}", loaded_path
+
+
+def save_config_file(config: AppConfig, path: Path) -> None:
+    path.write_text(json.dumps(config.to_mapping(), ensure_ascii=False, indent=2), encoding="utf-8")

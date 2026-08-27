@@ -1,14 +1,10 @@
-import importlib.machinery
+import password_gui.app as APP
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, main
 
 import password_logic as logic
 
-
-APP = importlib.machinery.SourceFileLoader(
-    "password_tools_gui_formats", str(Path(__file__).with_name("PasswordToolsGUI.pyw"))
-).load_module()
 
 
 class Value:

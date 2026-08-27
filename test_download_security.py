@@ -1,14 +1,9 @@
 import hashlib
-import importlib.machinery
+import password_gui.app as APP
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, main
 from unittest.mock import Mock, patch
-
-
-APP = importlib.machinery.SourceFileLoader(
-    "password_tools_gui_downloads", str(Path(__file__).with_name("PasswordToolsGUI.pyw"))
-).load_module()
 
 
 class Response:
