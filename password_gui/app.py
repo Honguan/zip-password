@@ -70,6 +70,7 @@ from password_gui.output_parser import (
     DashboardSnapshot,
     EngineOutputParser,
     apply_event,
+    estimate_mask_length,
 )
 from password_gui.wordlists import (
     WORDLIST_EXPANSION_LIMIT,
@@ -293,19 +294,6 @@ def select_font_family(
     available: set[str], preferred: tuple[str, ...], fallback: str
 ) -> str:
     return next((family for family in preferred if family in available), fallback)
-
-
-def estimate_mask_length(mask: str) -> int:
-    length = 0
-    i = 0
-    while i < len(mask):
-        if mask[i] == "?" and i + 1 < len(mask):
-            length += 1
-            i += 2
-            continue
-        length += 1
-        i += 1
-    return length
 
 
 def summarize_masks(masks: list[str]) -> str:
@@ -1414,39 +1402,22 @@ class PasswordToolGUI(tk.Tk):
                         if self.output_snapshot.progress_percent
                         else self.output_snapshot.progress
                     )
-                    controller.update(
+                    updates: dict[str, object] = dict(
                         progress=progress,
                         speed=self.output_snapshot.speed,
                         temperature=self.output_snapshot.temperature,
                         current_candidate=self.output_snapshot.candidate,
                         recovered_count=self.output_snapshot.recovered,
                     )
+                    if self.output_snapshot.mode != "-":
+                        updates["mode"] = self.output_snapshot.mode
+                    if self.output_snapshot.password_length != "-":
+                        updates["password_length"] = self.output_snapshot.password_length
+                    if self.output_snapshot.queue != "-":
+                        updates["queue"] = self.output_snapshot.queue
+                    controller.update(**updates)
                 else:
                     self.render_output_snapshot(self.output_snapshot)
-            match = re.match(r"Hash\.Mode\.+:\s*(.+)", line, re.I)
-            if match:
-                value = self.short_metric(match.group(1).strip(), 52)
-                controller.update(mode=value) if job_active else self.output_mode_var.set(value)
-            match = re.match(r"Input\.Mode\.+:\s*(.+)", line, re.I)
-            if match:
-                value = self.short_metric(match.group(1).strip(), 52)
-                controller.update(mode=value) if job_active else self.output_mode_var.set(value)
-            match = re.match(r"Guess\.Mask\.+:\s*(.+)", line, re.I)
-            if match:
-                mask_text = match.group(1).strip()
-                length_match = re.search(r"\[(\d+)\]\s*$", mask_text)
-                value = f"{length_match.group(1)} 位" if length_match else f"{estimate_mask_length(mask_text)} 位"
-                controller.update(password_length=value) if job_active else self.output_length_var.set(value)
-            match = re.match(r"Guess\.Queue\.+:\s*(.+)", line, re.I)
-            if match:
-                value = self.short_metric(match.group(1).strip(), 32)
-                controller.update(queue=value) if job_active else self.output_queue_var.set(value)
-            loaded = re.search(r"Loaded\s+(\d+)\s+password hash", line, re.I)
-            if loaded:
-                value = f"已載入 {loaded.group(1)} hash"
-                controller.update(queue=value) if job_active else self.output_queue_var.set(value)
-            if ("已輸出密碼：" in line or "_cracked.txt" in line) and not job_active:
-                self.output_file_var.set(line)
         if not job_active:
             self.refresh_output_overview()
 
@@ -1458,6 +1429,10 @@ class PasswordToolGUI(tk.Tk):
         self.output_temp_var.set(snapshot.temperature)
         self.output_candidate_var.set(snapshot.candidate)
         self.output_recovered_var.set(snapshot.recovered)
+        self.output_mode_var.set(snapshot.mode)
+        self.output_length_var.set(snapshot.password_length)
+        self.output_queue_var.set(snapshot.queue)
+        self.output_file_var.set(snapshot.output_file)
 
     def short_metric(self, value: str, limit: int) -> str:
         return value if len(value) <= limit else value[: max(0, limit - 1)] + "…"
