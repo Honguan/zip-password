@@ -41,9 +41,12 @@ class PasswordLogicTests(TestCase):
         )
 
     def test_hash_output_and_mode_parsing_need_no_gui(self):
-        text = "archive.zip:$rar5$16$hash:metadata\n"
+        text = "archive.rar:$rar5$16$11111111111111111111111111111111$15$22222222222222222222222222222222$8$3333333333333333:archive.rar\n"
 
-        self.assertEqual(logic.prepare_hash_output(text, "hashcat"), "$rar5$16$hash:metadata\n")
+        self.assertEqual(
+            logic.prepare_hash_output(text, "hashcat"),
+            "$rar5$16$11111111111111111111111111111111$15$22222222222222222222222222222222$8$3333333333333333\n",
+        )
         modes = {
             "$zip2$*0*3*hash": "13600 - WinZip",
             "$pkzip2$*1*2*hash": "17200 - PKZIP",
@@ -122,7 +125,7 @@ class PasswordLogicTests(TestCase):
         text = (
             "archive.zip:$zip2$*0*3*hash$/zip2$:archive.zip:folder/file.txt\n"
             "archive.zip:$pkzip2$*1*2*hash$/pkzip2$:archive.zip:folder/file.txt\n"
-            "archive.zip:$rar5$16$hash:metadata\n"
+            "archive.rar:$rar5$16$hash:metadata\n"
             "$office$*2013*hash:metadata\n"
         )
 
@@ -130,7 +133,7 @@ class PasswordLogicTests(TestCase):
             logic.prepare_hash_output(text, "hashcat"),
             "$zip2$*0*3*hash$/zip2$\n"
             "$pkzip2$*1*2*hash$/pkzip2$\n"
-            "$rar5$16$hash:metadata\n"
+            "$rar5$16$hash\n"
             "$office$*2013*hash:metadata\n",
         )
 
