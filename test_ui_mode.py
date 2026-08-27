@@ -37,7 +37,7 @@ class FakeFrame:
 
 class UiModeTests(unittest.TestCase):
     def test_tools_directory_is_not_an_editable_setting(self):
-        self.assertNotIn("tools_dir", APP.default_config())
+        self.assertFalse(hasattr(APP.default_config(), "tools_dir"))
 
     def test_advanced_tabs_are_hidden_by_default_and_can_be_shown(self):
         gui = object.__new__(APP.PasswordToolGUI)

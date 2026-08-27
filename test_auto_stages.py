@@ -28,11 +28,7 @@ class AutoStagesTests(TestCase):
 
     def make_finalize_gui(self):
         gui = object.__new__(APP.PasswordToolGUI)
-        gui.config_data = {
-            "hashcat_path": "hashcat.exe",
-            "john_path": "john.exe",
-            "john_run_dir": "",
-        }
+        gui.config_data = APP.AppConfig(hashcat_path=Path("hashcat.exe"), john_path=Path("john.exe"))
         gui.quick_status = Value()
         gui.log = Mock()
         gui.set_cracked_passwords = Mock()

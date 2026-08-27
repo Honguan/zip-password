@@ -24,7 +24,7 @@ class ConfigLoadingTests(TestCase):
         self.addCleanup(temp.cleanup)
         path = Path(temp.name) / "password_gui_config.json"
         path.write_text(content, encoding="utf-8")
-        defaults = {"path": "default", "enabled": "1"}
+        defaults = APP.AppConfig(output_dir=Path("default"))
         patches = (
             patch.object(APP, "CONFIG_PATH", path),
             patch.object(APP, "config_search_paths", return_value=[path]),
@@ -37,10 +37,10 @@ class ConfigLoadingTests(TestCase):
         return path, APP.load_config()
 
     def test_malformed_json_uses_defaults_without_overwriting_source(self):
-        original = '{"path": "custom", broken}'
+        original = '{"output_dir": "custom", broken}'
         path, (config, error, source) = self.load(original)
 
-        self.assertEqual(config, {"path": "default", "enabled": "1"})
+        self.assertEqual(config.output_dir, Path("default"))
         self.assertIn("JSON", error)
         self.assertEqual(source, path)
         self.assertEqual(path.read_text(encoding="utf-8"), original)
@@ -49,21 +49,25 @@ class ConfigLoadingTests(TestCase):
         original = '["not", "an", "object"]'
         path, (config, error, source) = self.load(original)
 
-        self.assertEqual(config, {"path": "default", "enabled": "1"})
+        self.assertEqual(config.output_dir, Path("default"))
         self.assertIn("不是 JSON object", error)
         self.assertEqual(source, path)
         self.assertEqual(path.read_text(encoding="utf-8"), original)
 
     def test_valid_config_loads_without_error(self):
-        path, (config, error, source) = self.load('{"path": "custom", "unknown": "ignored"}')
+        path, (config, error, source) = self.load(
+            '{"output_dir": "custom", "auto_follow_order": false, "unknown": "ignored"}'
+        )
 
-        self.assertEqual(config, {"path": "custom", "enabled": "1"})
+        self.assertEqual(config.output_dir, Path("custom"))
+        self.assertFalse(config.auto_follow_order)
+        self.assertNotIn("unknown", config.to_mapping())
         self.assertEqual(error, "")
         self.assertEqual(source, path)
 
     def test_only_explicit_save_can_replace_config_after_load_error(self):
         gui = object.__new__(APP.PasswordToolGUI)
-        gui.config_data = {"path": "default"}
+        gui.config_data = APP.AppConfig(output_dir=Path("default"))
         gui.config_load_error = "invalid JSON"
 
         with patch.object(APP, "save_config") as save:
@@ -73,6 +77,23 @@ class ConfigLoadingTests(TestCase):
 
         save.assert_called_once_with(gui.config_data)
         self.assertEqual(gui.config_load_error, "")
+
+    def test_legacy_boolean_migrates_and_saves_as_json_boolean(self):
+        path, (config, error, _source) = self.load('{"auto_follow_order": "0"}')
+
+        self.assertEqual(error, "")
+        self.assertFalse(config.auto_follow_order)
+        with patch.object(APP, "CONFIG_PATH", path):
+            APP.save_config(config)
+        self.assertIs(APP.read_config_file(path)["auto_follow_order"], False)
+
+    def test_malformed_typed_value_reports_error_without_overwriting(self):
+        original = '{"output_dir": ["invalid"]}'
+        path, (config, error, _source) = self.load(original)
+
+        self.assertEqual(config.output_dir, Path("default"))
+        self.assertIn("必須是路徑字串", error)
+        self.assertEqual(path.read_text(encoding="utf-8"), original)
 
     def test_load_error_is_shown_to_the_user(self):
         gui = object.__new__(APP.PasswordToolGUI)

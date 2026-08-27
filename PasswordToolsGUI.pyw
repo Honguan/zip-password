@@ -26,20 +26,19 @@ from tkinter import filedialog, messagebox, scrolledtext
 import tkinter as tk
 from tkinter import ttk
 
+from app_config import AppConfig
 from password_logic import (
     AUTO_MASKS,
     HASHCAT_DEFAULT_MASK,
     JOHN_DEFAULT_MASK,
     build_auto_hashcat_command,
     build_auto_john_command,
-    config_bool,
     converter_names,
     converter_runtime,
     detect_hashcat_mode,
     extract_passwords_from_show,
     format_for_extension,
     hashcat_mode_labels,
-    merge_config,
     prepare_hash_output,
     source_identity,
     supported_file_pattern,
@@ -227,7 +226,7 @@ def find_tool_paths(saved: dict[str, str] | None = None) -> dict[str, str]:
     }
 
 
-def default_config() -> dict[str, str]:
+def default_config() -> AppConfig:
     python_path = shutil.which("python") or sys.executable
     if getattr(sys, "frozen", False):
         python_path = shutil.which("python") or ""
@@ -235,49 +234,33 @@ def default_config() -> dict[str, str]:
         candidate = Path(python_path).with_name("python.exe")
         if candidate.exists():
             python_path = str(candidate)
-    detected = find_tool_paths({"python_path": python_path})
-    return {
-        "hashcat_path": detected["hashcat_path"],
-        "john_path": detected["john_path"],
-        "john_run_dir": detected["john_run_dir"],
-        "python_path": detected["python_path"] or python_path,
-        "perl_path": detected["perl_path"],
-        "node_path": detected["node_path"],
-        "default_wordlist": "",
-        "auto_follow_order": "1",
-        "combo_wordlist": "",
-        "combo_key": "",
-        "output_dir": str(RESULTS_DIR),
-    }
+    config = AppConfig(python_path=Path(python_path) if python_path else None, output_dir=RESULTS_DIR)
+    config.update_tool_paths(find_tool_paths(config.tool_paths()))
+    return config
 
 
 def config_search_paths() -> list[Path]:
     return [CONFIG_PATH, *(APP_DIR / name for name in LEGACY_CONFIG_NAMES)]
 
 
-def read_config_file(path: Path) -> dict[str, str]:
+def read_config_file(path: Path) -> dict[str, object]:
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise ValueError("設定檔格式不是 JSON object")
-    return {str(k): str(v) for k, v in data.items()}
+    return data
 
 
-def load_config() -> tuple[dict[str, str], str, Path | None]:
+def load_config() -> tuple[AppConfig, str, Path | None]:
     cfg = default_config()
-    saved: dict[str, str] = {}
     loaded_path = next((path for path in config_search_paths() if path.exists()), None)
     if loaded_path:
         try:
             data = read_config_file(loaded_path)
-            saved = data
-            cfg = merge_config(cfg, data)
+            cfg = AppConfig.from_mapping(data, cfg)
         except Exception as exc:
             error = f"{loaded_path}：{type(exc).__name__}: {exc}"
             return cfg, error, loaded_path
-    detected = find_tool_paths(saved)
-    for key, value in detected.items():
-        if value:
-            cfg[key] = value
+    cfg.update_tool_paths(find_tool_paths(cfg.tool_paths()))
     if loaded_path and loaded_path != CONFIG_PATH:
         try:
             save_config(cfg)
@@ -286,8 +269,8 @@ def load_config() -> tuple[dict[str, str], str, Path | None]:
     return cfg, "", loaded_path
 
 
-def save_config(cfg: dict[str, str]) -> None:
-    CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+def save_config(cfg: AppConfig) -> None:
+    CONFIG_PATH.write_text(json.dumps(cfg.to_mapping(), ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 class SetupError(RuntimeError):
@@ -995,13 +978,13 @@ class PasswordToolGUI(tk.Tk):
 
     def _build_launcher_panel(self, parent: ttk.Frame) -> None:
         self.quick_input = tk.StringVar()
-        self.quick_wordlist = tk.StringVar(value=self.config_data.get("default_wordlist", ""))
-        self.quick_combo_wordlist = tk.StringVar(value=self.config_data.get("combo_wordlist", ""))
-        self.quick_combo_key = tk.StringVar(value=self.config_data.get("combo_key", ""))
+        self.quick_wordlist = tk.StringVar(value=str(self.config_data.default_wordlist or ""))
+        self.quick_combo_wordlist = tk.StringVar(value=str(self.config_data.combo_wordlist or ""))
+        self.quick_combo_key = tk.StringVar(value=self.config_data.combo_key)
         self.common_wordlist = tk.StringVar(value=COMMON_WORDLISTS[1][0])
         self.quick_auto_download = tk.BooleanVar(value=True)
         self.quick_expand_wordlist = tk.BooleanVar(value=True)
-        self.quick_follow_order = tk.BooleanVar(value=config_bool(self.config_data.get("auto_follow_order", "1"), True))
+        self.quick_follow_order = tk.BooleanVar(value=self.config_data.auto_follow_order)
         self.quick_status = tk.StringVar(value="有字典會優先拆字組合；沒有字典才使用遮罩破解。")
 
         parent.columnconfigure(0, weight=1)
@@ -1143,7 +1126,7 @@ class PasswordToolGUI(tk.Tk):
         self.hashcat_hash_file = tk.StringVar()
         self.hashcat_mode = tk.StringVar(value=HASHCAT_MODES[0])
         self.hashcat_attack = tk.StringVar(value=HASHCAT_ATTACKS[0])
-        self.hashcat_wordlist = tk.StringVar(value=self.config_data.get("default_wordlist", ""))
+        self.hashcat_wordlist = tk.StringVar(value=str(self.config_data.default_wordlist or ""))
         self.hashcat_second = tk.StringVar()
         self.hashcat_mask = tk.StringVar(value=HASHCAT_DEFAULT_MASK)
         self.hashcat_rule = tk.StringVar()
@@ -1225,7 +1208,7 @@ class PasswordToolGUI(tk.Tk):
         self.john_hash_file = tk.StringVar()
         self.john_format = tk.StringVar()
         self.john_mode = tk.StringVar(value=JOHN_MODES[0])
-        self.john_wordlist = tk.StringVar(value=self.config_data.get("default_wordlist", ""))
+        self.john_wordlist = tk.StringVar(value=str(self.config_data.default_wordlist or ""))
         self.john_mask = tk.StringVar(value=JOHN_DEFAULT_MASK)
         self.john_rules = tk.StringVar()
         self.john_session = tk.StringVar(value="gui_john")
@@ -1397,7 +1380,7 @@ class PasswordToolGUI(tk.Tk):
             ("output_dir", "輸出目錄"),
         ]
         for idx, (key, label) in enumerate(rows, start=1):
-            var = tk.StringVar(value=self.config_data.get(key, ""))
+            var = tk.StringVar(value=str(getattr(self.config_data, key) or ""))
             self.setting_vars[key] = var
             browse = "dir" if key in {"john_run_dir", "output_dir"} else ("file" if key not in {"auto_follow_order", "combo_key"} else None)
             self._row(frame, idx, label, var, browse)
@@ -1440,14 +1423,14 @@ class PasswordToolGUI(tk.Tk):
         text.configure(state="disabled")
 
     def _rule_files(self) -> list[str]:
-        hashcat_path = self.config_data.get("hashcat_path", "")
-        rule_dir = Path(hashcat_path).parent / "rules" if hashcat_path else TOOLS_DIR / "hashcat" / "rules"
+        hashcat_path = self.config_data.hashcat_path
+        rule_dir = hashcat_path.parent / "rules" if hashcat_path else TOOLS_DIR / "hashcat" / "rules"
         if not rule_dir.exists():
             return []
         return [str(path) for path in sorted(rule_dir.rglob("*.rule"))]
 
     def refresh_converters(self) -> None:
-        run_dir = Path(self.config_data.get("john_run_dir", ""))
+        run_dir = self.config_data.john_run_dir or Path()
         names = [name for name in converter_names() if (run_dir / name).is_file()]
         self.converter_names = names
         values = ["自動偵測"] + names
@@ -1691,17 +1674,16 @@ class PasswordToolGUI(tk.Tk):
         try:
             self.enqueue_status("檢查工具環境中")
             ensure_tool_dirs()
-            detected = find_tool_paths(self.config_data)
-            self.config_data.update(detected)
-            if not self.config_data.get("hashcat_path") and auto_download:
+            self.config_data.update_tool_paths(find_tool_paths(self.config_data.tool_paths()))
+            if not self.config_data.hashcat_path and auto_download:
                 self.enqueue_log("\n找不到 hashcat，開始自動下載。\n")
-                self.config_data["hashcat_path"] = self.download_hashcat()
-            if not self.config_data.get("john_path") and auto_download:
+                self.config_data.hashcat_path = Path(self.download_hashcat())
+            if not self.config_data.john_path and auto_download:
                 self.enqueue_log("\n找不到 John the Ripper，開始自動下載。\n")
                 john_path, john_run = self.download_john()
-                self.config_data["john_path"] = john_path
-                self.config_data["john_run_dir"] = john_run
-            if not self.config_data.get("hashcat_path") and not self.config_data.get("john_path"):
+                self.config_data.john_path = Path(john_path)
+                self.config_data.john_run_dir = Path(john_run)
+            if not self.config_data.hashcat_path and not self.config_data.john_path:
                 raise SetupError("找不到可用的 hashcat 或 John。", HASHCAT_DOWNLOAD_PAGE)
             self.enqueue_ui(self.apply_detected_tools_to_ui)
             self.enqueue_status("工具環境已就緒")
@@ -1820,18 +1802,18 @@ class PasswordToolGUI(tk.Tk):
         self.quick_status.set(f"本次工作使用字典：{item[0]}")
 
     def sync_config_to_ui(self) -> None:
-        for key, var in self.setting_vars.items():
-            if key in self.config_data:
-                var.set(self.config_data.get(key, ""))
+        for key in ("hashcat_path", "john_path", "john_run_dir", "python_path", "perl_path", "node_path", "output_dir"):
+            if key in self.setting_vars:
+                self.setting_vars[key].set(str(getattr(self.config_data, key) or ""))
         if hasattr(self, "quick_wordlist"):
-            self.quick_wordlist.set(self.config_data.get("default_wordlist", ""))
-            self.quick_combo_wordlist.set(self.config_data.get("combo_wordlist", ""))
-            self.quick_combo_key.set(self.config_data.get("combo_key", ""))
-            self.quick_follow_order.set(config_bool(self.config_data.get("auto_follow_order", "1"), True))
+            self.quick_wordlist.set(str(self.config_data.default_wordlist or ""))
+            self.quick_combo_wordlist.set(str(self.config_data.combo_wordlist or ""))
+            self.quick_combo_key.set(self.config_data.combo_key)
+            self.quick_follow_order.set(self.config_data.auto_follow_order)
         if hasattr(self, "hashcat_wordlist"):
-            self.hashcat_wordlist.set(self.config_data.get("default_wordlist", ""))
+            self.hashcat_wordlist.set(str(self.config_data.default_wordlist or ""))
         if hasattr(self, "john_wordlist"):
-            self.john_wordlist.set(self.config_data.get("default_wordlist", ""))
+            self.john_wordlist.set(str(self.config_data.default_wordlist or ""))
 
     def _save_config(self, explicit: bool = False) -> bool:
         if self.config_load_error and not explicit:
@@ -1857,7 +1839,7 @@ class PasswordToolGUI(tk.Tk):
         messagebox.showinfo("設定遷移完成", summary)
 
     def open_output_folder(self) -> None:
-        out_dir = Path(self.config_data.get("output_dir", str(RESULTS_DIR)) or RESULTS_DIR)
+        out_dir = self.config_data.output_dir
         out_dir.mkdir(parents=True, exist_ok=True)
         try:
             os.startfile(str(out_dir))
@@ -1878,9 +1860,7 @@ class PasswordToolGUI(tk.Tk):
             return
         try:
             data = read_config_file(Path(path))
-            for key in default_config():
-                if key in data:
-                    self.config_data[key] = data[key]
+            self.config_data = AppConfig.from_mapping(data, default_config())
             self._save_config(explicit=True)
             self.sync_config_to_ui()
             self.refresh_converters()
@@ -1891,7 +1871,7 @@ class PasswordToolGUI(tk.Tk):
 
     def suggest_extract_output(self) -> None:
         src = Path(self.extract_input.get().strip())
-        configured_dir = Path(self.config_data.get("output_dir", str(RESULTS_DIR)) or RESULTS_DIR)
+        configured_dir = self.config_data.output_dir
         out_dir = result_dir_for_source(src, configured_dir) if src.name else configured_dir
         out_dir.mkdir(parents=True, exist_ok=True)
         stem = src.stem if src.name else "hash"
@@ -1916,13 +1896,11 @@ class PasswordToolGUI(tk.Tk):
         ):
             messagebox.showwarning("已有工作執行中", "請先停止或等待目前工作完成。")
             return
-        self.config_data["default_wordlist"] = self.quick_wordlist.get().strip()
-        self.config_data["combo_wordlist"] = self.quick_combo_wordlist.get().strip()
-        self.config_data["combo_key"] = self.quick_combo_key.get().strip()
-        self.config_data["auto_follow_order"] = "1" if self.quick_follow_order.get() else "0"
-        for key, var in self.setting_vars.items():
-            if key in self.config_data:
-                var.set(self.config_data[key])
+        self.config_data.default_wordlist = Path(value) if (value := self.quick_wordlist.get().strip()) else None
+        self.config_data.combo_wordlist = Path(value) if (value := self.quick_combo_wordlist.get().strip()) else None
+        self.config_data.combo_key = self.quick_combo_key.get().strip()
+        self.config_data.auto_follow_order = bool(self.quick_follow_order.get())
+        self.sync_config_to_ui()
         self._save_config()
         self.notebook.select(self.output_tab)
         self.quick_status.set("自動流程執行中。")
@@ -1937,7 +1915,7 @@ class PasswordToolGUI(tk.Tk):
         self.output_queue_var.set("-")
         self.output_candidate_var.set("-")
         self.output_mode_var.set("-")
-        output_dir = Path(self.config_data.get("output_dir", str(RESULTS_DIR)) or RESULTS_DIR)
+        output_dir = self.config_data.output_dir
         self.output_file_var.set(str(result_dir_for_source(src, output_dir)))
         self.refresh_output_overview()
         self.progress_value.set(0)
@@ -1956,7 +1934,7 @@ class PasswordToolGUI(tk.Tk):
         self.auto_thread.start()
 
     def _auto_output_paths(self, src: Path) -> dict[str, Path]:
-        output_dir = Path(self.config_data.get("output_dir", str(RESULTS_DIR)) or RESULTS_DIR)
+        output_dir = self.config_data.output_dir
         out_dir = result_dir_for_source(src, output_dir)
         base = out_dir / safe_stem(src.stem)
         return {
@@ -2067,9 +2045,9 @@ class PasswordToolGUI(tk.Tk):
         manual_wordlist: str,
         settings: dict[str, object],
     ) -> list[dict[str, object]]:
-        follow_order = config_bool(self.config_data.get("auto_follow_order", "1"), True)
-        combo_file = self.config_data.get("combo_wordlist", "").strip()
-        combo_key = self.config_data.get("combo_key", "").strip()
+        follow_order = self.config_data.auto_follow_order
+        combo_file = str(self.config_data.combo_wordlist or "")
+        combo_key = self.config_data.combo_key.strip()
         dictionary_sources = self.collect_dictionary_sources(manual_wordlist)
         stages: list[dict[str, object]] = []
 
@@ -2084,16 +2062,16 @@ class PasswordToolGUI(tk.Tk):
                 if not wordlist and (not configured_mask or configured_mask == HASHCAT_DEFAULT_MASK):
                     paths["mask"].write_text("\n".join(AUTO_MASKS) + "\n", encoding="utf-8", newline="\n")
                 cmd = build_auto_hashcat_command(
-                    self.config_data["hashcat_path"], paths["hashcat_hash"], first_number(mode_label),
+                    str(self.config_data.hashcat_path), paths["hashcat_hash"], first_number(mode_label),
                     wordlist, paths["cracked"], paths["mask"], src, configured_mask, suffix,
                 )
-                cwd = str(Path(self.config_data["hashcat_path"]).parent)
+                cwd = str(self.config_data.hashcat_path.parent)
             else:
                 cmd = build_auto_john_command(
-                    self.config_data["john_path"], paths["john_hash"], wordlist, src,
+                    str(self.config_data.john_path), paths["john_hash"], wordlist, src,
                     str(settings["john_mask"]), suffix,
                 )
-                cwd = self.config_data.get("john_run_dir") or None
+                cwd = str(self.config_data.john_run_dir) if self.config_data.john_run_dir else None
             stages.append(
                 {
                     "name": f"{engine} {stage_name}",
@@ -2122,7 +2100,7 @@ class PasswordToolGUI(tk.Tk):
             add_stage("階段3 硬破解", "", "brute")
             return stages
 
-        selected_wordlist = manual_wordlist or self.config_data.get("default_wordlist", "")
+        selected_wordlist = manual_wordlist or str(self.config_data.default_wordlist or "")
         if selected_wordlist:
             attack_wordlist = self.prepare_auto_wordlist(
                 selected_wordlist, paths["expanded_wordlist"], bool(settings["expand_wordlist"])
@@ -2164,10 +2142,10 @@ class PasswordToolGUI(tk.Tk):
                 self.enqueue_status(message)
                 self.enqueue_ui(lambda: self.quick_status.set(message))
                 return
-            if mode_label and self.config_data.get("hashcat_path") and Path(self.config_data["hashcat_path"]).exists():
+            if mode_label and self.config_data.hashcat_path and self.config_data.hashcat_path.exists():
                 stages = self.build_auto_attack_stages(src, paths, "hashcat", paths["hashcat_hash"], mode_label, wordlist, settings)
                 self.enqueue_ui(lambda: self.start_auto_stages(stages, 0))
-            elif self.config_data.get("john_path") and Path(self.config_data["john_path"]).exists():
+            elif self.config_data.john_path and self.config_data.john_path.exists():
                 if detection.preferred_engine == "john" and detection.format_name:
                     self.enqueue_log(
                         f"\n[自動流程] 無法安全判定 {detection.format_name} 的 Hashcat 模式，改用 John。\n"
@@ -2204,7 +2182,9 @@ class PasswordToolGUI(tk.Tk):
                 raise InterruptedError("雜湊轉換已停止")
             cmd = self.converter_command(converter, input_for_tool)
             self.enqueue_log(f"\n[{time.strftime('%H:%M:%S')}] 自動轉換：{converter}\n")
-            proc = self.runner.capture("雜湊轉換", cmd, cwd=self.config_data.get("john_run_dir") or None)
+            proc = self.runner.capture(
+                "雜湊轉換", cmd, cwd=str(self.config_data.john_run_dir) if self.config_data.john_run_dir else None
+            )
             if self.conversion_cancel.is_set():
                 raise InterruptedError("雜湊轉換已停止")
             stderr = clean_output(decode_bytes(proc.stderr))
@@ -2368,13 +2348,13 @@ class PasswordToolGUI(tk.Tk):
         try:
             if engine == "hashcat":
                 cmd = [
-                    self.config_data["hashcat_path"], "-m", first_number(mode_label),
+                    str(self.config_data.hashcat_path), "-m", first_number(mode_label),
                     "--show", "--outfile-format", "2", str(hash_file),
                 ]
-                cwd = str(Path(self.config_data["hashcat_path"]).parent)
+                cwd = str(self.config_data.hashcat_path.parent)
             else:
-                cmd = [self.config_data["john_path"], "--show", str(hash_file)]
-                cwd = self.config_data.get("john_run_dir") or None
+                cmd = [str(self.config_data.john_path), "--show", str(hash_file)]
+                cwd = str(self.config_data.john_run_dir) if self.config_data.john_run_dir else None
             creationflags, startupinfo = hidden_startup()
             proc = subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=creationflags, startupinfo=startupinfo, timeout=60)
             shown = clean_output(decode_bytes(proc.stdout))
@@ -2413,7 +2393,7 @@ class PasswordToolGUI(tk.Tk):
         return spec.converter if spec else ""
 
     def converter_command(self, converter_name: str, input_path: Path) -> list[str]:
-        run_dir = Path(self.config_data.get("john_run_dir", ""))
+        run_dir = self.config_data.john_run_dir or Path()
         converter_path = run_dir / converter_name
         if not converter_path.exists():
             raise FileNotFoundError(f"找不到轉換器：{converter_path}")
@@ -2422,15 +2402,15 @@ class PasswordToolGUI(tk.Tk):
             raise ValueError(f"不支援的轉換器：{converter_name}")
         if not runtime:
             return [str(converter_path), str(input_path)]
-        runtime_path = self.config_data.get(runtime, "")
-        if not runtime_path or not Path(runtime_path).exists():
+        runtime_path = getattr(self.config_data, runtime)
+        if not runtime_path or not runtime_path.exists():
             if runtime == "python_path":
                 raise SetupError("未設定可用的 python.exe，無法執行 .py 轉換器。", PYTHON_DOWNLOAD_PAGE)
             if runtime == "perl_path":
                 raise SetupError("未設定可用的 perl.exe，無法執行 .pl 轉換器。", PERL_DOWNLOAD_PAGE)
             if runtime == "node_path":
                 raise SetupError("未設定可用的 node.exe，無法執行 .js 轉換器。", NODE_DOWNLOAD_PAGE)
-        return [runtime_path, str(converter_path), str(input_path)]
+        return [str(runtime_path), str(converter_path), str(input_path)]
 
     def safe_converter_input(self, original: Path, temp_dir: Path) -> Path:
         safe_name = "input" + original.suffix.lower()
@@ -2481,7 +2461,9 @@ class PasswordToolGUI(tk.Tk):
                 raise InterruptedError("雜湊轉換已停止")
             cmd = self.converter_command(converter, input_for_tool)
             self.enqueue_log(f"\n[{time.strftime('%H:%M:%S')}] 雜湊轉換：{converter}\n{quote_command(cmd)}\n\n")
-            proc = self.runner.capture("雜湊轉換", cmd, cwd=self.config_data.get("john_run_dir") or None)
+            proc = self.runner.capture(
+                "雜湊轉換", cmd, cwd=str(self.config_data.john_run_dir) if self.config_data.john_run_dir else None
+            )
             if self.conversion_cancel.is_set():
                 raise InterruptedError("雜湊轉換已停止")
             stdout = clean_output(decode_bytes(proc.stdout))
@@ -2522,11 +2504,11 @@ class PasswordToolGUI(tk.Tk):
             self.john_hash_file.set(str(out_path))
 
     def hashcat_common_args(self) -> list[str]:
-        self.config_data.update({k: v for k, v in find_tool_paths(self.config_data).items() if v})
-        exe = self.config_data.get("hashcat_path", "")
-        if not exe or not Path(exe).exists():
+        self.config_data.update_tool_paths(find_tool_paths(self.config_data.tool_paths()))
+        exe = self.config_data.hashcat_path
+        if not exe or not exe.exists():
             raise SetupError("找不到 hashcat.exe，可按「檢查/下載環境」自動下載。", HASHCAT_DOWNLOAD_PAGE)
-        return [exe]
+        return [str(exe)]
 
     def build_hashcat_command(self, show: bool = False) -> list[str]:
         cmd = self.hashcat_common_args()
@@ -2606,7 +2588,7 @@ class PasswordToolGUI(tk.Tk):
             messagebox.showerror("Hashcat 設定錯誤", str(exc))
             return
         self.notebook.select(self.output_tab)
-        self.runner.start("hashcat", cmd, cwd=str(Path(self.config_data["hashcat_path"]).parent))
+        self.runner.start("hashcat", cmd, cwd=str(self.config_data.hashcat_path.parent))
 
     def hashcat_show(self) -> None:
         try:
@@ -2615,7 +2597,7 @@ class PasswordToolGUI(tk.Tk):
             messagebox.showerror("Hashcat 設定錯誤", str(exc))
             return
         self.notebook.select(self.output_tab)
-        self.runner.start("hashcat --show", cmd, cwd=str(Path(self.config_data["hashcat_path"]).parent))
+        self.runner.start("hashcat --show", cmd, cwd=str(self.config_data.hashcat_path.parent))
 
     def hashcat_custom(self) -> None:
         try:
@@ -2627,7 +2609,7 @@ class PasswordToolGUI(tk.Tk):
             messagebox.showerror("Hashcat 設定錯誤", str(exc))
             return
         self.notebook.select(self.output_tab)
-        self.runner.start("hashcat custom", cmd, cwd=str(Path(self.config_data["hashcat_path"]).parent))
+        self.runner.start("hashcat custom", cmd, cwd=str(self.config_data.hashcat_path.parent))
 
     def hashcat_devices(self) -> None:
         try:
@@ -2636,7 +2618,7 @@ class PasswordToolGUI(tk.Tk):
             messagebox.showerror("Hashcat 設定錯誤", str(exc))
             return
         self.notebook.select(self.output_tab)
-        self.runner.start("hashcat -I", cmd, cwd=str(Path(self.config_data["hashcat_path"]).parent))
+        self.runner.start("hashcat -I", cmd, cwd=str(self.config_data.hashcat_path.parent))
 
     def hashcat_benchmark(self) -> None:
         try:
@@ -2645,7 +2627,7 @@ class PasswordToolGUI(tk.Tk):
             messagebox.showerror("Hashcat 設定錯誤", str(exc))
             return
         self.notebook.select(self.output_tab)
-        self.runner.start("hashcat benchmark", cmd, cwd=str(Path(self.config_data["hashcat_path"]).parent))
+        self.runner.start("hashcat benchmark", cmd, cwd=str(self.config_data.hashcat_path.parent))
 
     def hashcat_help(self) -> None:
         try:
@@ -2654,14 +2636,14 @@ class PasswordToolGUI(tk.Tk):
             messagebox.showerror("Hashcat 設定錯誤", str(exc))
             return
         self.notebook.select(self.output_tab)
-        self.runner.start("hashcat help", cmd, cwd=str(Path(self.config_data["hashcat_path"]).parent))
+        self.runner.start("hashcat help", cmd, cwd=str(self.config_data.hashcat_path.parent))
 
     def john_common_args(self) -> list[str]:
-        self.config_data.update({k: v for k, v in find_tool_paths(self.config_data).items() if v})
-        exe = self.config_data.get("john_path", "")
-        if not exe or not Path(exe).exists():
+        self.config_data.update_tool_paths(find_tool_paths(self.config_data.tool_paths()))
+        exe = self.config_data.john_path
+        if not exe or not exe.exists():
             raise SetupError("找不到 john.exe，可按「檢查/下載環境」自動下載。", JOHN_RELEASE_PAGE)
-        return [exe]
+        return [str(exe)]
 
     def build_john_command(self) -> list[str]:
         cmd = self.john_common_args()
@@ -2704,7 +2686,7 @@ class PasswordToolGUI(tk.Tk):
             messagebox.showerror("John 設定錯誤", str(exc))
             return
         self.notebook.select(self.output_tab)
-        self.runner.start("John", cmd, cwd=self.config_data.get("john_run_dir") or None)
+        self.runner.start("John", cmd, cwd=str(self.config_data.john_run_dir) if self.config_data.john_run_dir else None)
 
     def john_show(self) -> None:
         try:
@@ -2717,7 +2699,7 @@ class PasswordToolGUI(tk.Tk):
             messagebox.showerror("John 設定錯誤", str(exc))
             return
         self.notebook.select(self.output_tab)
-        self.runner.start("John --show", cmd, cwd=self.config_data.get("john_run_dir") or None)
+        self.runner.start("John --show", cmd, cwd=str(self.config_data.john_run_dir) if self.config_data.john_run_dir else None)
 
     def john_custom(self) -> None:
         try:
@@ -2729,7 +2711,7 @@ class PasswordToolGUI(tk.Tk):
             messagebox.showerror("John 設定錯誤", str(exc))
             return
         self.notebook.select(self.output_tab)
-        self.runner.start("John custom", cmd, cwd=self.config_data.get("john_run_dir") or None)
+        self.runner.start("John custom", cmd, cwd=str(self.config_data.john_run_dir) if self.config_data.john_run_dir else None)
 
     def john_status(self) -> None:
         try:
@@ -2740,7 +2722,7 @@ class PasswordToolGUI(tk.Tk):
             messagebox.showerror("John 設定錯誤", str(exc))
             return
         self.notebook.select(self.output_tab)
-        self.runner.start("John status", cmd, cwd=self.config_data.get("john_run_dir") or None)
+        self.runner.start("John status", cmd, cwd=str(self.config_data.john_run_dir) if self.config_data.john_run_dir else None)
 
     def john_restore(self) -> None:
         try:
@@ -2751,7 +2733,7 @@ class PasswordToolGUI(tk.Tk):
             messagebox.showerror("John 設定錯誤", str(exc))
             return
         self.notebook.select(self.output_tab)
-        self.runner.start("John restore", cmd, cwd=self.config_data.get("john_run_dir") or None)
+        self.runner.start("John restore", cmd, cwd=str(self.config_data.john_run_dir) if self.config_data.john_run_dir else None)
 
     def john_test(self) -> None:
         try:
@@ -2760,7 +2742,7 @@ class PasswordToolGUI(tk.Tk):
             messagebox.showerror("John 設定錯誤", str(exc))
             return
         self.notebook.select(self.output_tab)
-        self.runner.start("John test", cmd, cwd=self.config_data.get("john_run_dir") or None)
+        self.runner.start("John test", cmd, cwd=str(self.config_data.john_run_dir) if self.config_data.john_run_dir else None)
 
     def john_help(self) -> None:
         try:
@@ -2769,7 +2751,7 @@ class PasswordToolGUI(tk.Tk):
             messagebox.showerror("John 設定錯誤", str(exc))
             return
         self.notebook.select(self.output_tab)
-        self.runner.start("John help", cmd, cwd=self.config_data.get("john_run_dir") or None)
+        self.runner.start("John help", cmd, cwd=str(self.config_data.john_run_dir) if self.config_data.john_run_dir else None)
 
     def load_john_formats(self) -> None:
         try:
@@ -2777,7 +2759,7 @@ class PasswordToolGUI(tk.Tk):
             creationflags, startupinfo = hidden_startup()
             proc = subprocess.run(
                 cmd,
-                cwd=self.config_data.get("john_run_dir") or None,
+                cwd=str(self.config_data.john_run_dir) if self.config_data.john_run_dir else None,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 creationflags=creationflags,
@@ -2793,15 +2775,16 @@ class PasswordToolGUI(tk.Tk):
 
     def apply_settings(self, persist: bool = False) -> None:
         for key, var in self.setting_vars.items():
-            self.config_data[key] = var.get().strip()
+            value = var.get().strip()
+            setattr(self.config_data, key, Path(value) if value else (RESULTS_DIR if key == "output_dir" else None))
         if hasattr(self, "quick_follow_order"):
-            self.config_data["auto_follow_order"] = "1" if self.quick_follow_order.get() else "0"
-            self.config_data["default_wordlist"] = self.quick_wordlist.get().strip()
-            self.config_data["combo_wordlist"] = self.quick_combo_wordlist.get().strip()
-            self.config_data["combo_key"] = self.quick_combo_key.get().strip()
+            self.config_data.auto_follow_order = bool(self.quick_follow_order.get())
+            self.config_data.default_wordlist = Path(value) if (value := self.quick_wordlist.get().strip()) else None
+            self.config_data.combo_wordlist = Path(value) if (value := self.quick_combo_wordlist.get().strip()) else None
+            self.config_data.combo_key = self.quick_combo_key.get().strip()
         if persist:
             self._save_config(explicit=True)
-        Path(self.config_data.get("output_dir", str(RESULTS_DIR)) or RESULTS_DIR).mkdir(parents=True, exist_ok=True)
+        self.config_data.output_dir.mkdir(parents=True, exist_ok=True)
         self.refresh_converters()
         self.sync_config_to_ui()
 
@@ -2811,21 +2794,25 @@ class PasswordToolGUI(tk.Tk):
 
     def detect_settings(self) -> None:
         detected = default_config()
-        for key, value in detected.items():
+        for key in ("hashcat_path", "john_path", "john_run_dir", "python_path", "perl_path", "node_path", "output_dir"):
+            value = getattr(detected, key)
             current = self.setting_vars.get(key)
             if current and (value or not current.get().strip()):
-                current.set(value)
+                current.set(str(value or ""))
 
     def health_check(self) -> None:
         self.apply_settings()
-        self.config_data.update({k: v for k, v in find_tool_paths(self.config_data).items() if v})
+        self.config_data.update_tool_paths(find_tool_paths(self.config_data.tool_paths()))
         tests = []
-        if self.config_data.get("hashcat_path") and Path(self.config_data["hashcat_path"]).exists():
-            tests.append(("hashcat", [self.config_data["hashcat_path"], "--version"], str(Path(self.config_data["hashcat_path"]).parent)))
+        if self.config_data.hashcat_path and self.config_data.hashcat_path.exists():
+            tests.append(("hashcat", [str(self.config_data.hashcat_path), "--version"], str(self.config_data.hashcat_path.parent)))
         else:
             self.log(f"\n[健康檢查] hashcat: 未找到，下載網址 {HASHCAT_DOWNLOAD_PAGE}\n")
-        if self.config_data.get("john_path") and Path(self.config_data["john_path"]).exists():
-            tests.append(("john", [self.config_data["john_path"], "--list=build-info"], self.config_data.get("john_run_dir") or None))
+        if self.config_data.john_path and self.config_data.john_path.exists():
+            tests.append((
+                "john", [str(self.config_data.john_path), "--list=build-info"],
+                str(self.config_data.john_run_dir) if self.config_data.john_run_dir else None,
+            ))
         else:
             self.log(f"\n[健康檢查] john: 未找到，下載網址 {JOHN_RELEASE_PAGE}\n")
         self.notebook.select(self.output_tab)
@@ -2846,8 +2833,7 @@ class PasswordToolGUI(tk.Tk):
                 self.log(f"\n[健康檢查] {name}: {first}\n")
             except Exception as exc:
                 self.log(f"\n[健康檢查] {name}: 失敗 {exc}\n")
-        perl_path = self.config_data.get("perl_path", "")
-        if not perl_path:
+        if not self.config_data.perl_path:
             self.log("[健康檢查] perl: 未設定，.pl 轉換器不可用\n")
 
     def stop_current_work(self) -> None:

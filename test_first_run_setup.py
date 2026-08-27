@@ -20,7 +20,7 @@ class Value:
 class FirstRunSetupTests(TestCase):
     def make_gui(self):
         gui = object.__new__(APP.PasswordToolGUI)
-        gui.config_data = {}
+        gui.config_data = APP.AppConfig()
         gui._tools_setup_lock = APP.threading.Lock()
         gui.quick_auto_download = Value(True)
         gui.enqueue_log = Mock()
@@ -33,11 +33,10 @@ class FirstRunSetupTests(TestCase):
 
     def test_missing_tools_are_downloaded_on_first_run(self):
         gui = self.make_gui()
-        gui.config_data = {
-            "hashcat_path": "missing-hashcat.exe",
-            "john_path": "missing-john.exe",
-            "john_run_dir": "missing-run",
-        }
+        gui.config_data = APP.AppConfig(
+            hashcat_path=Path("missing-hashcat.exe"), john_path=Path("missing-john.exe"),
+            john_run_dir=Path("missing-run"),
+        )
         missing = {key: "" for key in ("hashcat_path", "john_path", "john_run_dir")}
 
         with patch.object(APP, "ensure_tool_dirs"), patch.object(APP, "find_tool_paths", return_value=missing):
@@ -45,23 +44,24 @@ class FirstRunSetupTests(TestCase):
 
         gui.download_hashcat.assert_called_once_with()
         gui.download_john.assert_called_once_with()
-        self.assertEqual(gui.config_data["hashcat_path"], "hashcat.exe")
-        self.assertEqual(gui.config_data["john_path"], "john.exe")
-        self.assertEqual(gui.config_data["john_run_dir"], "john-run")
+        self.assertEqual(gui.config_data.hashcat_path, Path("hashcat.exe"))
+        self.assertEqual(gui.config_data.john_path, Path("john.exe"))
+        self.assertEqual(gui.config_data.john_run_dir, Path("john-run"))
 
     def test_missing_tools_are_cleared_when_download_is_disabled(self):
         gui = self.make_gui()
-        gui.config_data = {
-            "hashcat_path": "missing-hashcat.exe",
-            "john_path": "missing-john.exe",
-            "john_run_dir": "missing-run",
-        }
+        gui.config_data = APP.AppConfig(
+            hashcat_path=Path("missing-hashcat.exe"), john_path=Path("missing-john.exe"),
+            john_run_dir=Path("missing-run"),
+        )
         missing = {key: "" for key in ("hashcat_path", "john_path", "john_run_dir")}
 
         with patch.object(APP, "ensure_tool_dirs"), patch.object(APP, "find_tool_paths", return_value=missing):
             gui._ensure_tools_worker(auto_download=False)
 
-        self.assertEqual(gui.config_data, missing)
+        self.assertIsNone(gui.config_data.hashcat_path)
+        self.assertIsNone(gui.config_data.john_path)
+        self.assertIsNone(gui.config_data.john_run_dir)
         gui.enqueue_ui.assert_not_called()
         gui.enqueue_status.assert_called_with("工具環境需要手動處理")
 
@@ -85,7 +85,9 @@ class FirstRunSetupTests(TestCase):
 
         gui.download_hashcat.assert_not_called()
         gui.download_john.assert_not_called()
-        self.assertEqual(gui.config_data, installed)
+        self.assertEqual(gui.config_data.hashcat_path, Path("hashcat.exe"))
+        self.assertEqual(gui.config_data.john_path, Path("john.exe"))
+        self.assertEqual(gui.config_data.john_run_dir, Path("john-run"))
 
     def test_repeated_async_setup_is_ignored_until_the_worker_finishes(self):
         gui = self.make_gui()
@@ -118,7 +120,9 @@ class FirstRunSetupTests(TestCase):
             gui._ensure_tools_worker()
             gui._ensure_tools_worker()
 
-        self.assertEqual(gui.config_data, installed)
+        self.assertEqual(gui.config_data.hashcat_path, Path("hashcat.exe"))
+        self.assertEqual(gui.config_data.john_path, Path("john.exe"))
+        self.assertEqual(gui.config_data.john_run_dir, Path("john-run"))
 
     def test_setup_worker_uses_snapshotted_download_setting(self):
         gui = self.make_gui()

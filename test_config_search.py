@@ -22,7 +22,7 @@ class ConfigSearchTests(TestCase):
         for item in (
             patch.object(APP, "APP_DIR", self.app_dir),
             patch.object(APP, "CONFIG_PATH", self.config_path),
-            patch.object(APP, "default_config", return_value={"output_dir": "default"}),
+            patch.object(APP, "default_config", return_value=APP.AppConfig(output_dir=Path("default"))),
             patch.object(APP, "find_tool_paths", return_value={}),
         ):
             item.start()
@@ -35,7 +35,7 @@ class ConfigSearchTests(TestCase):
         with patch.object(APP.Path, "cwd", return_value=self.cwd):
             config, error, source = APP.load_config()
 
-        self.assertEqual(config["output_dir"], "default")
+        self.assertEqual(config.output_dir, Path("default"))
         self.assertEqual(error, "")
         self.assertIsNone(source)
         self.assertFalse(self.config_path.exists())
@@ -45,7 +45,7 @@ class ConfigSearchTests(TestCase):
 
         config, error, source = APP.load_config()
 
-        self.assertEqual(config["output_dir"], "primary")
+        self.assertEqual(config.output_dir, Path("primary"))
         self.assertEqual(error, "")
         self.assertEqual(source, self.config_path)
 
@@ -55,7 +55,7 @@ class ConfigSearchTests(TestCase):
 
         config, error, source = APP.load_config()
 
-        self.assertEqual(config["output_dir"], "legacy")
+        self.assertEqual(config.output_dir, Path("legacy"))
         self.assertEqual(error, "")
         self.assertEqual(source, legacy)
         self.assertEqual(APP.read_config_file(self.config_path)["output_dir"], "legacy")
