@@ -939,6 +939,7 @@ class PasswordToolGUI(tk.Tk):
         self.status_queue: queue.Queue[str] = queue.Queue(maxsize=UI_QUEUE_LIMIT)
         self.ui_queue: queue.Queue[object] = queue.Queue()
         self._tools_setup_lock = threading.Lock()
+        self._wordlist_download_lock = threading.Lock()
         self.runner = CommandRunner(self)
         self.extract_thread: threading.Thread | None = None
         self.auto_thread: threading.Thread | None = None
@@ -1122,7 +1123,10 @@ class PasswordToolGUI(tk.Tk):
         ttk.Entry(self.candidate_options, textvariable=self.quick_combo_key).grid(row=3, column=0, sticky="ew", pady=(0, 8))
         ttk.Label(self.candidate_options, text="常見字典", style="Soft.TLabel").grid(row=4, column=0, sticky="w", pady=(0, 4))
         ttk.Combobox(self.candidate_options, textvariable=self.common_wordlist, values=[item[0] for item in COMMON_WORDLISTS], state="readonly").grid(row=5, column=0, sticky="ew", pady=(0, 8))
-        ttk.Button(self.candidate_options, text="下載並使用常見字典", command=self.download_selected_wordlist).grid(row=6, column=0, sticky="ew")
+        self.common_wordlist_download_button = ttk.Button(
+            self.candidate_options, text="下載並使用常見字典", command=self.download_selected_wordlist
+        )
+        self.common_wordlist_download_button.grid(row=6, column=0, sticky="ew")
         self.set_candidate_options_visible(False)
 
         ttk.Label(parent, text="3  執行策略", style="PanelHeader.TLabel").grid(row=9, column=0, sticky="w")
@@ -1844,8 +1848,17 @@ class PasswordToolGUI(tk.Tk):
         if not item:
             messagebox.showerror("字典錯誤", "請選擇要下載的字典。")
             return
-        thread = threading.Thread(target=self._download_wordlist_worker, args=(item,), daemon=True)
-        thread.start()
+        if not self._wordlist_download_lock.acquire(blocking=False):
+            self.quick_status.set("常見字典下載中，請稍候。")
+            return
+        self.common_wordlist_download_button.state(["disabled"])
+        self.quick_status.set(f"正在下載字典：{item[0]}")
+        try:
+            threading.Thread(target=self._download_wordlist_worker, args=(item,), daemon=True).start()
+        except Exception:
+            self.common_wordlist_download_button.state(["!disabled"])
+            self._wordlist_download_lock.release()
+            raise
 
     def _download_wordlist_worker(self, item: tuple[str, str, str]) -> None:
         name, filename, url = item
@@ -1861,6 +1874,13 @@ class PasswordToolGUI(tk.Tk):
         except Exception as exc:
             self.enqueue_log(f"\n[字典下載錯誤] {exc}\n")
             self.enqueue_status("字典下載失敗")
+            self.enqueue_ui(lambda: self.quick_status.set("字典下載失敗，請查看詳細記錄。"))
+        finally:
+            self.enqueue_ui(self._finish_wordlist_download)
+
+    def _finish_wordlist_download(self) -> None:
+        self.common_wordlist_download_button.state(["!disabled"])
+        self._wordlist_download_lock.release()
 
     def apply_downloaded_wordlist(self, path: Path, name: str) -> None:
         self.quick_wordlist.set(str(path))
