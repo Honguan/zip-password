@@ -1808,8 +1808,6 @@ class PasswordToolGUI(tk.Tk):
                 self.enqueue_log(f"\n[階段 2] 已由 Key 生成組合候選：{count:,} 筆\n")
         if not sources:
             return ""
-        if len(sources) == 1:
-            return str(sources[0])
         result = merge_wordlist_files(sources, paths["combo_wordlist"])
         if result.failed_sources:
             failure = result.failed_sources[0]

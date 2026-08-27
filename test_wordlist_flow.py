@@ -110,6 +110,23 @@ class WordlistFlowTests(TestCase):
                         Path("input.zip"), self.paths(), "hashcat", Path("hash.txt"), "0 - MD5", "", settings
                     )
 
+    def test_hints_strategy_rejects_an_empty_candidate_file(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            empty = root / "empty.txt"
+            empty.write_text("\n", encoding="utf-8")
+            paths = {key: root / f"{key}.txt" for key in self.paths()}
+            gui = self.make_gui()
+            gui.config_data.attack_strategy = APP.AttackStrategy.HINTS
+            gui.config_data.combo_wordlist = empty
+            gui.prepare_combo_wordlist = APP.PasswordToolGUI.prepare_combo_wordlist.__get__(gui)
+
+            with self.assertRaisesRegex(ValueError, "需要提示詞"):
+                gui.build_auto_attack_stages(
+                    Path("input.zip"), paths, "hashcat", Path("hash.txt"), "0 - MD5", "",
+                    {"expand_wordlist": False, "hashcat_mask": "", "john_mask": ""},
+                )
+
     def test_duplicate_wordlist_download_starts_one_worker(self):
         gui = object.__new__(APP.PasswordToolGUI)
         gui.common_wordlist = Value(APP.COMMON_WORDLISTS[0][0])
