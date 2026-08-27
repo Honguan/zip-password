@@ -492,8 +492,6 @@ def build_expanded_wordlist(source: Path, dest: Path, limit: int = WORDLIST_EXPA
         dest.write_text("", encoding="utf-8")
         return 0
     candidates: set[str] = set()
-    token_pool: list[str] = []
-    token_seen: set[str] = set()
 
     with source.open("rb") as source_file, dest.open("w", encoding="utf-8", newline="\n") as dest_file:
         def add(value: str) -> bool:
@@ -522,13 +520,6 @@ def build_expanded_wordlist(source: Path, dest: Path, limit: int = WORDLIST_EXPA
             for token in tokens:
                 if add_with_case(token):
                     break
-                key = token.lower()
-                if len(token_pool) < 120 and key not in token_seen:
-                    token_seen.add(key)
-                    token_pool.append(token)
-                for char in token:
-                    if not char.isspace() and add(char):
-                        break
             if len(candidates) >= limit:
                 break
             usable = tokens[:8]
@@ -543,37 +534,6 @@ def build_expanded_wordlist(source: Path, dest: Path, limit: int = WORDLIST_EXPA
                     break
             if len(candidates) >= limit:
                 break
-
-        pool = token_pool[:120]
-        for first in pool:
-            if len(candidates) >= limit:
-                break
-            for second in pool:
-                if len(candidates) >= limit:
-                    break
-                if first == second:
-                    continue
-                for joiner in WORDLIST_JOINERS:
-                    if add(first + joiner + second):
-                        break
-
-        small_pool = token_pool[:32]
-        for first in small_pool:
-            if len(candidates) >= limit:
-                break
-            for second in small_pool:
-                if len(candidates) >= limit:
-                    break
-                if first == second:
-                    continue
-                for third in small_pool:
-                    if len(candidates) >= limit:
-                        break
-                    if third in {first, second}:
-                        continue
-                    for joiner in WORDLIST_JOINERS:
-                        if add(joiner.join([first, second, third])):
-                            break
 
     return len(candidates)
 
@@ -1114,7 +1074,7 @@ class PasswordToolGUI(tk.Tk):
 
         ttk.Label(parent, text="3  執行策略", style="PanelHeader.TLabel").grid(row=9, column=0, sticky="w")
         ttk.Checkbutton(parent, text="依序嘗試：字典 → 組合 → 硬破解", variable=self.quick_follow_order, style="Card.TCheckbutton").grid(row=10, column=0, sticky="w", pady=(8, 6))
-        ttk.Checkbutton(parent, text="導入字典時自動拆字與組合", variable=self.quick_expand_wordlist, style="Card.TCheckbutton").grid(row=11, column=0, sticky="w", pady=(0, 6))
+        ttk.Checkbutton(parent, text="導入字典時建立基本變體與有限組合", variable=self.quick_expand_wordlist, style="Card.TCheckbutton").grid(row=11, column=0, sticky="w", pady=(0, 6))
         ttk.Checkbutton(parent, text="缺少 hashcat / John 時自動下載", variable=self.quick_auto_download, style="Card.TCheckbutton").grid(row=12, column=0, sticky="w", pady=(0, 10))
 
         status_box = ttk.Frame(parent, padding=(10, 8), style="Soft.TFrame")

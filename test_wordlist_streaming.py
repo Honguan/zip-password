@@ -49,6 +49,20 @@ class WordlistStreamingTests(TestCase):
 
         self.assertEqual(count, 100)
 
+    def test_many_tokens_have_bounded_expansion_without_character_splitting(self):
+        with TemporaryDirectory() as temp:
+            source = Path(temp) / "tokens.txt"
+            dest = Path(temp) / "expanded.txt"
+            source.write_text(" ".join(f"Alpha{index}" for index in range(120)), encoding="utf-8")
+
+            count = APP.build_expanded_wordlist(source, dest)
+            candidates = dest.read_text(encoding="utf-8").splitlines()
+
+        self.assertLess(count, 1_000)
+        self.assertIn("Alpha0", candidates)
+        self.assertIn("alpha0", candidates)
+        self.assertNotIn("A", candidates)
+
 
 if __name__ == "__main__":
     main()
