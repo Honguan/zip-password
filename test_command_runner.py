@@ -1,13 +1,8 @@
-import importlib.machinery
+import password_gui.app as APP
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, main
 from unittest.mock import Mock, patch
-
-
-APP = importlib.machinery.SourceFileLoader(
-    "password_tools_gui_runner", str(Path(__file__).with_name("PasswordToolsGUI.pyw"))
-).load_module()
 
 
 class CommandRunnerTests(TestCase):
@@ -86,16 +81,17 @@ class CommandRunnerTests(TestCase):
 
     def test_start_reports_launch_exception_and_releases_job(self):
         app = Mock()
-        runner = APP.CommandRunner(app)
+        notify = Mock()
+        runner = APP.CommandRunner(app, notify)
 
         with (
             patch.object(APP.subprocess, "Popen", side_effect=FileNotFoundError("missing.exe")),
-            patch.object(APP.messagebox, "showerror"),
         ):
             started = runner.start("hashcat", ["missing.exe"])
 
         self.assertFalse(started)
         self.assertIn("FileNotFoundError: missing.exe", app.log.call_args.args[0])
+        notify.assert_called_once_with("error", "啟動失敗", "missing.exe")
         self.assertIsInstance(runner.last_result.error, FileNotFoundError)
         self.assertTrue(runner.job_lock.acquire(blocking=False))
         runner.job_lock.release()

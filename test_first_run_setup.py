@@ -1,12 +1,10 @@
-import importlib.machinery
+import password_gui.app as APP
 from pathlib import Path
 from unittest import TestCase, main
 from unittest.mock import Mock, patch
 
+from password_gui import tools
 
-APP = importlib.machinery.SourceFileLoader(
-    "password_tools_gui_setup", str(Path(__file__).with_name("PasswordToolsGUI.pyw"))
-).load_module()
 
 
 class Value:
@@ -66,11 +64,11 @@ class FirstRunSetupTests(TestCase):
         gui.enqueue_status.assert_called_with("工具環境需要手動處理")
 
     def test_invalid_john_path_does_not_preserve_its_run_directory(self):
-        with patch.object(APP, "existing_exe", return_value=""), patch.object(
-            APP, "find_in_env", return_value=""
-        ), patch.object(APP.shutil, "which", return_value=None), patch.object(
-            APP, "find_hashcat_under", return_value=""
-        ), patch.object(APP, "find_john_under", return_value=("", "")):
+        with patch.object(tools, "existing_exe", return_value=""), patch.object(
+            tools, "find_in_env", return_value=""
+        ), patch.object(tools.shutil, "which", return_value=None), patch.object(
+            tools, "find_hashcat_under", return_value=""
+        ), patch.object(tools, "find_john_under", return_value=("", "")):
             detected = APP.find_tool_paths({"john_path": "missing.exe", "john_run_dir": "missing-run"})
 
         self.assertEqual(detected["john_path"], "")

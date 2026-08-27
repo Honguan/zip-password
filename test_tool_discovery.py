@@ -1,14 +1,11 @@
-import importlib.machinery
+import password_gui.app as APP
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, main
 from unittest.mock import patch
 
-
-APP = importlib.machinery.SourceFileLoader(
-    "password_tools_gui_discovery", str(Path(__file__).with_name("PasswordToolsGUI.pyw"))
-).load_module()
+from password_gui import tools
 
 
 class ToolDiscoveryTests(TestCase):
@@ -47,14 +44,14 @@ class ToolDiscoveryTests(TestCase):
             "perl.exe": "path/perl.exe",
             "node.exe": "path/node.exe",
         }
-        with patch.object(APP, "existing_exe", return_value=""), patch.object(
-            APP, "find_in_env", return_value=""
-        ), patch.object(APP.shutil, "which", side_effect=lambda name: found.get(name)), patch.object(
-            APP, "find_hashcat_under"
+        with patch.object(tools, "existing_exe", return_value=""), patch.object(
+            tools, "find_in_env", return_value=""
+        ), patch.object(tools.shutil, "which", side_effect=lambda name: found.get(name)), patch.object(
+            tools, "find_hashcat_under"
         ) as managed_hashcat, patch.object(
-            APP, "find_john_under", return_value=("managed/john.exe", "managed/run")
+            tools, "find_john_under", return_value=("managed/john.exe", "managed/run")
         ):
-            detected = APP.find_tool_paths()
+            detected = APP.find_tool_paths(tools_dir=APP.TOOLS_DIR)
 
         self.assertEqual(detected["hashcat_path"], "path/hashcat.exe")
         self.assertEqual(detected["john_path"], "managed/john.exe")

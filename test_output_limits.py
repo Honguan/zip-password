@@ -1,14 +1,10 @@
-import importlib.machinery
+import password_gui.app as APP
 import queue
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 from unittest.mock import Mock
 
-
-APP = importlib.machinery.SourceFileLoader(
-    "password_tools_gui_output", str(Path(__file__).with_name("PasswordToolsGUI.pyw"))
-).load_module()
 
 
 class OutputLimitTests(TestCase):
