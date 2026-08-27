@@ -565,9 +565,9 @@ class PasswordToolGUI(tk.Tk):
         self.strategy_card = self._card(self.task_cards, 2, 0, pady=(0, 10))
         self.strategy_card.columnconfigure(0, weight=1)
         ttk.Label(self.strategy_card, text="3  執行策略摘要", style="PanelHeader.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Combobox(
-            self.strategy_card, textvariable=self.quick_strategy, values=list(ATTACK_STRATEGY_OPTIONS), state="readonly"
-        ).grid(row=1, column=0, sticky="ew", pady=(10, 6))
+        ttk.Label(self.strategy_card, textvariable=self.quick_strategy, style="Card.TLabel").grid(
+            row=1, column=0, sticky="w", pady=(10, 6)
+        )
         ttk.Label(self.strategy_card, textvariable=self.strategy_summary, style="Muted.TLabel").grid(row=2, column=0, sticky="w", pady=(0, 6))
         ttk.Checkbutton(self.strategy_card, text="建立基本變體與有限組合", variable=self.quick_expand_wordlist, style="Card.TCheckbutton").grid(row=3, column=0, sticky="w")
         ttk.Checkbutton(self.strategy_card, text="自動管理工具環境", variable=self.quick_auto_download, style="Card.TCheckbutton").grid(row=4, column=0, sticky="w", pady=(4, 0))
@@ -587,7 +587,6 @@ class PasswordToolGUI(tk.Tk):
             self.quick_wordlist,
             self.quick_combo_wordlist,
             self.quick_combo_key,
-            self.quick_strategy,
         ):
             variable.trace_add("write", lambda *_: self._refresh_task_summary())
         self.candidate_source.trace_add("write", lambda *_: self._set_candidate_source())
@@ -622,6 +621,9 @@ class PasswordToolGUI(tk.Tk):
         self.quick_strategy.set(label)
         self._refresh_task_summary()
 
+    def selected_attack_strategy(self) -> AttackStrategy:
+        return CANDIDATE_SOURCE_STRATEGIES[self.candidate_source.get()]
+
     def _refresh_task_summary(self, update_status: bool = True) -> None:
         if "quick_start_button" not in self.__dict__:
             return
@@ -635,7 +637,7 @@ class PasswordToolGUI(tk.Tk):
         else:
             self.target_summary.set("尚未選擇有效檔案")
 
-        strategy = ATTACK_STRATEGY_OPTIONS[self.quick_strategy.get()]
+        strategy = self.selected_attack_strategy()
         stages = {
             AttackStrategy.AUTO: "字典庫 → 提示詞擴展 → 暴力遮罩",
             AttackStrategy.DICTIONARY: "字典",
@@ -1702,7 +1704,7 @@ class PasswordToolGUI(tk.Tk):
             self.config_data.default_wordlist = Path(wordlist) if wordlist else None
             self.config_data.combo_wordlist = Path(value) if (value := self.quick_combo_wordlist.get().strip()) else None
             self.config_data.combo_key = self.quick_combo_key.get().strip()
-            self.config_data.attack_strategy = ATTACK_STRATEGY_OPTIONS[self.quick_strategy.get()]
+            self.config_data.attack_strategy = self.selected_attack_strategy()
             settings = {
                 "auto_download": bool(self.quick_auto_download.get()),
                 "converter": converter,
@@ -2700,8 +2702,8 @@ class PasswordToolGUI(tk.Tk):
         for key, var in self.setting_vars.items():
             value = var.get().strip()
             setattr(self.config_data, key, Path(value) if value else (RESULTS_DIR if key == "output_dir" else None))
-        if hasattr(self, "quick_strategy"):
-            self.config_data.attack_strategy = ATTACK_STRATEGY_OPTIONS[self.quick_strategy.get()]
+        if hasattr(self, "candidate_source"):
+            self.config_data.attack_strategy = self.selected_attack_strategy()
             self.config_data.default_wordlist = Path(value) if (value := self.quick_wordlist.get().strip()) else None
             self.config_data.combo_wordlist = Path(value) if (value := self.quick_combo_wordlist.get().strip()) else None
             self.config_data.combo_key = self.quick_combo_key.get().strip()
