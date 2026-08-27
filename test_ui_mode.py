@@ -151,10 +151,12 @@ class UiModeTests(unittest.TestCase):
                 gui.update()
                 self.assertIn("sample.zip｜ZIP", gui.target_summary.get())
                 self.assertTrue(gui.quick_start_button.instate(["!disabled"]))
+                self.assertFalse(any(isinstance(widget, APP.ttk.Combobox) for widget in gui.strategy_card.winfo_children()))
 
                 gui.quick_wordlist.set("")
                 gui.candidate_source.set("自訂字典")
                 gui.update()
+                self.assertEqual(gui.selected_attack_strategy(), APP.AttackStrategy.DICTIONARY)
                 self.assertTrue(gui.quick_start_button.instate(["disabled"]))
                 self.assertIn("字典", gui.quick_status.get())
 
