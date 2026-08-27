@@ -187,5 +187,34 @@ class WordlistFlowTests(TestCase):
         self.assertIn(str(sources[0]), log)
         self.assertIn(str(sources[1]), log)
 
+    def test_required_source_failure_stops_library_preparation(self):
+        with TemporaryDirectory() as temp:
+            gui = object.__new__(APP.PasswordToolGUI)
+            gui.enqueue_log = Mock()
+            missing = Path(temp) / "missing-required.txt"
+
+            with self.assertRaisesRegex(RuntimeError, "無法讀取指定字典"):
+                gui.prepare_library_wordlist([missing], Path(temp) / "unused.txt")
+
+        self.assertIn(str(missing), gui.enqueue_log.call_args.args[0])
+
+    def test_optional_source_failure_is_logged_and_successful_source_continues(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            loaded = root / "loaded.txt"
+            missing = root / "missing.txt"
+            loaded.write_text("candidate\n", encoding="utf-8")
+            gui = object.__new__(APP.PasswordToolGUI)
+            gui.enqueue_log = Mock()
+
+            result = gui.prepare_library_wordlist(
+                [loaded, missing], root / "merged.txt", optional_sources={missing}
+            )
+
+        self.assertTrue(result)
+        log = "".join(call.args[0] for call in gui.enqueue_log.call_args_list)
+        self.assertIn("選用", log)
+        self.assertIn(str(missing), log)
+
 if __name__ == "__main__":
     main()
