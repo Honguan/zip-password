@@ -26,7 +26,7 @@ from tkinter import filedialog, messagebox, scrolledtext
 import tkinter as tk
 from tkinter import ttk
 
-from app_config import AppConfig
+from app_config import AppConfig, AttackStrategy
 from password_logic import (
     AUTO_MASKS,
     HASHCAT_DEFAULT_MASK,
@@ -107,6 +107,13 @@ COMMON_WORDLISTS = [
         "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Passwords/Common-Credentials/Pwdb_top-100000.txt",
     ),
 ]
+
+ATTACK_STRATEGY_OPTIONS = {
+    "AUTO－字典 → 提示詞 → 遮罩": AttackStrategy.AUTO,
+    "DICTIONARY－只使用所選字典": AttackStrategy.DICTIONARY,
+    "HINTS－只使用提示詞／組合": AttackStrategy.HINTS,
+    "MASK－只使用遮罩": AttackStrategy.MASK,
+}
 
 WORDLIST_JOINERS = ["", " ", ".", "-", "_", "/", "@", "\t"]
 WORDLIST_EXPANSION_LIMIT = 500_000
@@ -984,7 +991,8 @@ class PasswordToolGUI(tk.Tk):
         self.common_wordlist = tk.StringVar(value=COMMON_WORDLISTS[1][0])
         self.quick_auto_download = tk.BooleanVar(value=True)
         self.quick_expand_wordlist = tk.BooleanVar(value=True)
-        self.quick_follow_order = tk.BooleanVar(value=self.config_data.auto_follow_order)
+        strategy_label = next(label for label, strategy in ATTACK_STRATEGY_OPTIONS.items() if strategy == self.config_data.attack_strategy)
+        self.quick_strategy = tk.StringVar(value=strategy_label)
         self.quick_status = tk.StringVar(value="有字典會優先拆字組合；沒有字典才使用遮罩破解。")
 
         parent.columnconfigure(0, weight=1)
@@ -1033,7 +1041,9 @@ class PasswordToolGUI(tk.Tk):
         self.set_candidate_options_visible(False)
 
         ttk.Label(parent, text="3  執行策略", style="PanelHeader.TLabel").grid(row=9, column=0, sticky="w")
-        ttk.Checkbutton(parent, text="依序嘗試：字典 → 組合 → 硬破解", variable=self.quick_follow_order, style="Card.TCheckbutton").grid(row=10, column=0, sticky="w", pady=(8, 6))
+        ttk.Combobox(
+            parent, textvariable=self.quick_strategy, values=list(ATTACK_STRATEGY_OPTIONS), state="readonly"
+        ).grid(row=10, column=0, sticky="ew", pady=(8, 6))
         ttk.Checkbutton(parent, text="導入字典時建立基本變體與有限組合", variable=self.quick_expand_wordlist, style="Card.TCheckbutton").grid(row=11, column=0, sticky="w", pady=(0, 6))
         ttk.Checkbutton(parent, text="缺少 hashcat / John 時自動下載", variable=self.quick_auto_download, style="Card.TCheckbutton").grid(row=12, column=0, sticky="w", pady=(0, 10))
 
@@ -1382,7 +1392,7 @@ class PasswordToolGUI(tk.Tk):
         for idx, (key, label) in enumerate(rows, start=1):
             var = tk.StringVar(value=str(getattr(self.config_data, key) or ""))
             self.setting_vars[key] = var
-            browse = "dir" if key in {"john_run_dir", "output_dir"} else ("file" if key not in {"auto_follow_order", "combo_key"} else None)
+            browse = "dir" if key in {"john_run_dir", "output_dir"} else "file"
             self._row(frame, idx, label, var, browse)
         buttons = ttk.Frame(frame)
         buttons.grid(row=len(rows) + 1, column=1, sticky="ew", pady=(12, 8))
@@ -1809,7 +1819,11 @@ class PasswordToolGUI(tk.Tk):
             self.quick_wordlist.set(str(self.config_data.default_wordlist or ""))
             self.quick_combo_wordlist.set(str(self.config_data.combo_wordlist or ""))
             self.quick_combo_key.set(self.config_data.combo_key)
-            self.quick_follow_order.set(self.config_data.auto_follow_order)
+            label = next(
+                label for label, strategy in ATTACK_STRATEGY_OPTIONS.items()
+                if strategy == self.config_data.attack_strategy
+            )
+            self.quick_strategy.set(label)
         if hasattr(self, "hashcat_wordlist"):
             self.hashcat_wordlist.set(str(self.config_data.default_wordlist or ""))
         if hasattr(self, "john_wordlist"):
@@ -1899,7 +1913,7 @@ class PasswordToolGUI(tk.Tk):
         self.config_data.default_wordlist = Path(value) if (value := self.quick_wordlist.get().strip()) else None
         self.config_data.combo_wordlist = Path(value) if (value := self.quick_combo_wordlist.get().strip()) else None
         self.config_data.combo_key = self.quick_combo_key.get().strip()
-        self.config_data.auto_follow_order = bool(self.quick_follow_order.get())
+        self.config_data.attack_strategy = ATTACK_STRATEGY_OPTIONS[self.quick_strategy.get()]
         self.sync_config_to_ui()
         self._save_config()
         self.notebook.select(self.output_tab)
@@ -2045,7 +2059,7 @@ class PasswordToolGUI(tk.Tk):
         manual_wordlist: str,
         settings: dict[str, object],
     ) -> list[dict[str, object]]:
-        follow_order = self.config_data.auto_follow_order
+        strategy = self.config_data.attack_strategy
         combo_file = str(self.config_data.combo_wordlist or "")
         combo_key = self.config_data.combo_key.strip()
         dictionary_sources = self.collect_dictionary_sources(manual_wordlist)
@@ -2087,31 +2101,28 @@ class PasswordToolGUI(tk.Tk):
                 }
             )
 
-        if follow_order:
+        if strategy in {AttackStrategy.AUTO, AttackStrategy.DICTIONARY}:
             library_wordlist = self.prepare_library_wordlist(dictionary_sources, paths["library_wordlist"])
             if library_wordlist:
                 attack_wordlist = self.prepare_auto_wordlist(
                     library_wordlist, paths["expanded_wordlist"], bool(settings["expand_wordlist"])
                 )
-                add_stage("階段1 字典庫破解", attack_wordlist, "dict")
-            combo_wordlist = self.prepare_combo_wordlist(combo_file, combo_key, paths)
-            if combo_wordlist:
-                add_stage("階段2 組合破解", combo_wordlist, "combo")
-            add_stage("階段3 硬破解", "", "brute")
-            return stages
+                add_stage("字典破解", attack_wordlist, "dict")
+            elif strategy == AttackStrategy.DICTIONARY:
+                raise ValueError("DICTIONARY 策略需要明確選擇可用字典。")
+            if strategy == AttackStrategy.DICTIONARY:
+                return stages
 
-        selected_wordlist = manual_wordlist or str(self.config_data.default_wordlist or "")
-        if selected_wordlist:
-            attack_wordlist = self.prepare_auto_wordlist(
-                selected_wordlist, paths["expanded_wordlist"], bool(settings["expand_wordlist"])
-            )
-            add_stage("單次字典破解", attack_wordlist, "single")
-        elif combo_file or combo_key:
+        if strategy in {AttackStrategy.AUTO, AttackStrategy.HINTS}:
             combo_wordlist = self.prepare_combo_wordlist(combo_file, combo_key, paths)
             if combo_wordlist:
-                add_stage("單次組合破解", combo_wordlist, "combo")
-        else:
-            add_stage("單次硬破解", "", "brute")
+                add_stage("提示詞破解", combo_wordlist, "hints")
+            elif strategy == AttackStrategy.HINTS:
+                raise ValueError("HINTS 策略需要提示詞或組合密碼檔。")
+            if strategy == AttackStrategy.HINTS:
+                return stages
+
+        add_stage("遮罩破解", "", "mask")
         return stages
 
     def _auto_workflow(self, src: Path, wordlist: str, settings: dict[str, object]) -> None:
@@ -2777,8 +2788,8 @@ class PasswordToolGUI(tk.Tk):
         for key, var in self.setting_vars.items():
             value = var.get().strip()
             setattr(self.config_data, key, Path(value) if value else (RESULTS_DIR if key == "output_dir" else None))
-        if hasattr(self, "quick_follow_order"):
-            self.config_data.auto_follow_order = bool(self.quick_follow_order.get())
+        if hasattr(self, "quick_strategy"):
+            self.config_data.attack_strategy = ATTACK_STRATEGY_OPTIONS[self.quick_strategy.get()]
             self.config_data.default_wordlist = Path(value) if (value := self.quick_wordlist.get().strip()) else None
             self.config_data.combo_wordlist = Path(value) if (value := self.quick_combo_wordlist.get().strip()) else None
             self.config_data.combo_key = self.quick_combo_key.get().strip()
