@@ -29,7 +29,7 @@ class AutoEngineTests(TestCase):
             source = root / "sample.zip"
             source.touch()
             gui = object.__new__(APP.PasswordToolGUI)
-            gui.config_data = {"output_dir": str(output_dir)}
+            gui.config_data = APP.AppConfig(output_dir=output_dir)
             gui.extract_input = Value(str(source))
             gui.extract_target = Value("hashcat")
             gui.extract_output = Value()
@@ -63,7 +63,7 @@ class AutoEngineTests(TestCase):
                 "cracked": cracked,
             }
             gui = object.__new__(APP.PasswordToolGUI)
-            gui.config_data = {"hashcat_path": str(hashcat), "john_path": str(john)}
+            gui.config_data = APP.AppConfig(hashcat_path=hashcat, john_path=john)
             gui._ensure_tools_worker = Mock()
             gui._auto_output_paths = Mock(return_value=paths)
             gui.convert_file_to_hash_text = Mock(return_value="hash")
@@ -107,7 +107,7 @@ class AutoEngineTests(TestCase):
                 "cracked": root / "cracked.txt",
             }
             gui = object.__new__(APP.PasswordToolGUI)
-            gui.config_data = {"hashcat_path": str(root / "missing.exe"), "john_path": str(john)}
+            gui.config_data = APP.AppConfig(hashcat_path=root / "missing.exe", john_path=john)
             gui._ensure_tools_worker = Mock()
             gui._auto_output_paths = Mock(return_value=paths)
             gui.read_hash_text = Mock(return_value="$rar5$16$hash")
@@ -143,7 +143,7 @@ class AutoEngineTests(TestCase):
                 "cracked": root / "cracked.txt",
             }
             gui = object.__new__(APP.PasswordToolGUI)
-            gui.config_data = {"hashcat_path": str(hashcat), "john_path": str(john)}
+            gui.config_data = APP.AppConfig(hashcat_path=hashcat, john_path=john)
             gui._ensure_tools_worker = Mock()
             gui._auto_output_paths = Mock(return_value=paths)
             gui.read_hash_text = Mock(return_value="$pdf$9*9*256*unknown")
@@ -178,7 +178,7 @@ class AutoEngineTests(TestCase):
                 "cracked": root / "cracked.txt",
             }
             gui = object.__new__(APP.PasswordToolGUI)
-            gui.config_data = {"hashcat_path": str(hashcat), "john_path": ""}
+            gui.config_data = APP.AppConfig(hashcat_path=hashcat)
             gui.quick_status = Value("自動流程執行中。")
             gui._ensure_tools_worker = Mock()
             gui._auto_output_paths = Mock(return_value=paths)

@@ -202,7 +202,7 @@ class CommandRunnerTests(TestCase):
             src.touch()
             out = root / "output.hash"
             gui = object.__new__(APP.PasswordToolGUI)
-            gui.config_data = {}
+            gui.config_data = APP.AppConfig()
             gui.conversion_cancel = APP.threading.Event()
             gui.converter_command = Mock(return_value=["zip2john.exe", str(src)])
             gui.runner = Mock()

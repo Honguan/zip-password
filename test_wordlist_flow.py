@@ -24,7 +24,7 @@ class Value:
 class WordlistFlowTests(TestCase):
     def make_gui(self):
         gui = object.__new__(APP.PasswordToolGUI)
-        gui.config_data = {"hashcat_path": "hashcat.exe"}
+        gui.config_data = APP.AppConfig(hashcat_path=Path("hashcat.exe"))
         gui.collect_dictionary_sources = Mock(return_value=[Path("source.txt")])
         gui.prepare_library_wordlist = Mock(return_value="merged.txt")
         gui.prepare_auto_wordlist = Mock(
@@ -131,7 +131,7 @@ class WordlistFlowTests(TestCase):
             selected.write_text("selected\n", encoding="utf-8")
             (root / "historical.txt").write_text("historical\n", encoding="utf-8")
             gui = object.__new__(APP.PasswordToolGUI)
-            gui.config_data = {"default_wordlist": str(root / "historical.txt")}
+            gui.config_data = APP.AppConfig(default_wordlist=root / "historical.txt")
 
             with patch.object(APP, "WORDLISTS_DIR", root), patch.object(
                 APP.Path, "rglob", side_effect=AssertionError("implicit scan is not allowed")

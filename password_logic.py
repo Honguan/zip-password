@@ -162,21 +162,6 @@ def source_identity(source: Path) -> str:
     return f"{stem}_{digest}"
 
 
-def config_bool(value: str | bool | None, default: bool = True) -> bool:
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    text = str(value).strip().lower()
-    if not text:
-        return default
-    return text not in {"0", "false", "no", "off", "關", "否", "停用"}
-
-
-def merge_config(defaults: dict[str, str], saved: dict[str, str]) -> dict[str, str]:
-    return {key: str(saved.get(key, value)) for key, value in defaults.items()}
-
-
 def prepare_hash_output(text: str, target: str) -> str:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     if target != "hashcat":

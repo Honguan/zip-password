@@ -57,7 +57,7 @@ class FormatRegistryTests(TestCase):
             runtime.touch()
             gui = object.__new__(APP.PasswordToolGUI)
             gui.extract_converter = Value()
-            gui.config_data = {"john_run_dir": str(root), "python_path": str(runtime)}
+            gui.config_data = APP.AppConfig(john_run_dir=root, python_path=runtime)
 
             selected = gui.converter_for_input(Path("document.docx"))
             command = gui.converter_command(selected, Path("document.docx"))

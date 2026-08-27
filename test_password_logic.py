@@ -5,13 +5,6 @@ import password_logic as logic
 
 
 class PasswordLogicTests(TestCase):
-    def test_config_values_merge_without_unknown_keys(self):
-        self.assertEqual(
-            logic.merge_config({"enabled": "1", "path": "default"}, {"enabled": "0", "extra": "ignored"}),
-            {"enabled": "0", "path": "default"},
-        )
-        self.assertFalse(logic.config_bool("off"))
-
     def test_auto_hashcat_command_preserves_dictionary_arguments(self):
         source = Path("sample.zip")
         command = logic.build_auto_hashcat_command(
