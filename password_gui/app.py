@@ -80,6 +80,7 @@ from password_gui.wordlists import (
     build_expanded_wordlist,
     case_variants,
     count_text_lines,
+    has_text_candidate,
     merge_wordlist_files,
     split_candidate_tokens,
 )
@@ -655,7 +656,7 @@ class PasswordToolGUI(tk.Tk):
         elif source in {"常用字典", "自訂字典"} and not Path(self.quick_wordlist.get().strip()).is_file():
             reason = "請先選擇或套用字典。"
         elif source == "提示詞組合" and not (
-            self.quick_combo_key.get().strip() or Path(self.quick_combo_wordlist.get().strip()).is_file()
+            self.quick_combo_key.get().strip() or has_text_candidate(Path(self.quick_combo_wordlist.get().strip()))
         ):
             reason = "請輸入提示詞或選擇提示詞檔案。"
         self.quick_start_button.state(["disabled"] if reason else ["!disabled"])
