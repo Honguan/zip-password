@@ -55,6 +55,9 @@ class CommandRunnerTests(TestCase):
 
         callback.assert_called_once_with(-15, True)
         app.enqueue_status.assert_called_once_with("hashcat 已停止")
+        self.assertEqual(runner.last_result.exit_code, -15)
+        self.assertTrue(runner.last_result.cancelled)
+        self.assertIsNone(runner.last_result.error)
 
     def test_capture_returns_converter_output_and_releases_the_job(self):
         app = Mock()
@@ -66,6 +69,9 @@ class CommandRunnerTests(TestCase):
             result = runner.capture("convert", ["converter.exe"])
 
         self.assertEqual((result.stdout, result.stderr), (b"hash", b"warning"))
+        self.assertEqual(runner.last_result.exit_code, 0)
+        self.assertFalse(runner.last_result.cancelled)
+        self.assertIsNone(runner.last_result.error)
         self.assertTrue(runner.job_lock.acquire(blocking=False))
         runner.job_lock.release()
 
@@ -90,6 +96,7 @@ class CommandRunnerTests(TestCase):
 
         self.assertFalse(started)
         self.assertIn("FileNotFoundError: missing.exe", app.log.call_args.args[0])
+        self.assertIsInstance(runner.last_result.error, FileNotFoundError)
         self.assertTrue(runner.job_lock.acquire(blocking=False))
         runner.job_lock.release()
 
@@ -110,6 +117,9 @@ class CommandRunnerTests(TestCase):
 
         process.terminate.assert_called_once_with()
         app.enqueue_status.assert_called_with("convert 已停止")
+        self.assertEqual(runner.last_result.exit_code, -15)
+        self.assertTrue(runner.last_result.cancelled)
+        self.assertIsInstance(runner.last_result.error, InterruptedError)
 
     def test_stop_marks_a_converter_worker_cancelled_before_launch(self):
         gui = object.__new__(APP.PasswordToolGUI)
