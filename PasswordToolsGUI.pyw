@@ -486,54 +486,61 @@ def split_candidate_tokens(text: str) -> list[str]:
     return [token for token in tokens if token]
 
 
-def build_expanded_wordlist(source: Path, dest: Path, limit: int = WORDLIST_EXPANSION_LIMIT) -> int:
+def build_expanded_wordlist(
+    source: Path, dest: Path, limit: int = WORDLIST_EXPANSION_LIMIT, cancel: threading.Event | None = None
+) -> int:
     dest.parent.mkdir(parents=True, exist_ok=True)
-    if limit <= 0:
-        dest.write_text("", encoding="utf-8")
-        return 0
     candidates: set[str] = set()
+    derived_count = 0
 
     with source.open("rb") as source_file, dest.open("w", encoding="utf-8", newline="\n") as dest_file:
-        def add(value: str) -> bool:
+        def add(value: str, derived: bool = False) -> bool:
+            nonlocal derived_count
             value = value.strip("\r\n")
+            if derived and derived_count >= limit:
+                return True
             if value and len(value) <= 256 and value not in candidates:
                 candidates.add(value)
                 dest_file.write(value + "\n")
-            return len(candidates) >= limit
+                if derived:
+                    derived_count += 1
+            return derived_count >= limit
 
         def add_with_case(value: str) -> bool:
             for variant in case_variants(value):
-                if add(variant):
+                if add(variant, derived=True):
                     return True
             return False
 
         for raw_line in source_file:
+            if cancel and cancel.is_set():
+                break
             line = clean_output(decode_bytes(raw_line)).strip()
             if not line:
                 continue
-            if add_with_case(line):
-                break
+            add(line)
+            if derived_count >= limit:
+                continue
+            add_with_case(line)
             compact = re.sub(r"\s+", "", line)
-            if compact != line and add_with_case(compact):
-                break
+            if compact != line:
+                add_with_case(compact)
             tokens = split_candidate_tokens(line)
             for token in tokens:
                 if add_with_case(token):
                     break
-            if len(candidates) >= limit:
-                break
+            if derived_count >= limit:
+                continue
             usable = tokens[:8]
             if len(usable) < 2:
                 continue
             for joiner in WORDLIST_JOINERS:
-                if add(joiner.join(usable)):
+                if add(joiner.join(usable), derived=True):
                     break
-                if add(joiner.join(reversed(usable))):
+                if add(joiner.join(reversed(usable)), derived=True):
                     break
-                if len(usable) > 2 and add(joiner.join([usable[0], usable[-1]])):
+                if len(usable) > 2 and add(joiner.join([usable[0], usable[-1]]), derived=True):
                     break
-            if len(candidates) >= limit:
-                break
 
     return len(candidates)
 
@@ -2031,7 +2038,9 @@ class PasswordToolGUI(tk.Tk):
                 raise FileNotFoundError(f"組合密碼檔不存在：{combo_file}")
         if combo_key.strip():
             paths["combo_seed"].write_text(combo_key.strip() + "\n", encoding="utf-8", newline="\n")
-            count = build_expanded_wordlist(paths["combo_seed"], paths["combo_key_wordlist"])
+            count = build_expanded_wordlist(
+                paths["combo_seed"], paths["combo_key_wordlist"], cancel=self.conversion_cancel
+            )
             if count > 0:
                 sources.append(paths["combo_key_wordlist"])
                 self.enqueue_log(f"\n[階段 2] 已由 Key 生成組合候選：{count:,} 筆\n")
@@ -2053,7 +2062,7 @@ class PasswordToolGUI(tk.Tk):
             raise FileNotFoundError(f"字典檔不存在：{wordlist}")
         if not should_expand:
             return str(source)
-        count = build_expanded_wordlist(source, expanded_path)
+        count = build_expanded_wordlist(source, expanded_path, cancel=self.conversion_cancel)
         if count <= 0:
             raise RuntimeError("字典檔沒有可用候選密碼。")
         self.enqueue_log(f"\n已建立組合字典：{expanded_path}\n候選數：{count}\n")
