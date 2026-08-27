@@ -14,7 +14,7 @@ import time
 import ctypes
 import urllib.parse
 from pathlib import Path
-from tkinter import filedialog, messagebox, scrolledtext
+from tkinter import filedialog, font as tkfont, messagebox, scrolledtext
 import tkinter as tk
 from tkinter import ttk
 
@@ -106,7 +106,6 @@ APP_DIR = (
     if getattr(sys, "frozen", False)
     else Path(__file__).resolve().parent.parent
 )
-RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR))
 TOOLS_DIR = APP_DIR / "密碼工具GUI_tools"
 DOWNLOADS_DIR = TOOLS_DIR / "downloads"
 TOOL_TMP_DIR = TOOLS_DIR / "tmp"
@@ -119,9 +118,6 @@ LEGACY_CONFIG_NAMES = [
     "password_tools_gui_config.json",
 ]
 RESULTS_DIR = APP_DIR / "密碼工具GUI_輸出"
-UI_FONT = "Iansui"
-MONO_FONT = UI_FONT
-FONT_FILE_NAME = "Iansui-Regular.ttf"
 BG = "#F3F6FA"
 SURFACE = "#FFFFFF"
 SURFACE_2 = "#EEF3F8"
@@ -279,17 +275,10 @@ def first_number(value: str) -> str:
     return match.group(1) if match else value.strip()
 
 
-def load_private_font() -> None:
-    if os.name != "nt":
-        return
-    for font_path in (RESOURCE_DIR / FONT_FILE_NAME, APP_DIR / FONT_FILE_NAME):
-        if not font_path.exists():
-            continue
-        try:
-            ctypes.windll.gdi32.AddFontResourceExW(str(font_path), 0x10, 0)
-        except Exception:
-            pass
-        return
+def select_font_family(
+    available: set[str], preferred: tuple[str, ...], fallback: str
+) -> str:
+    return next((family for family in preferred if family in available), fallback)
 
 
 def estimate_mask_length(mask: str) -> int:
@@ -317,8 +306,18 @@ def summarize_masks(masks: list[str]) -> str:
 
 class PasswordToolGUI(tk.Tk):
     def __init__(self) -> None:
-        load_private_font()
         super().__init__()
+        available_fonts = set(tkfont.families(self))
+        self.ui_font = select_font_family(
+            available_fonts,
+            ("Microsoft JhengHei UI", "Microsoft JhengHei", "Segoe UI"),
+            str(tkfont.nametofont("TkDefaultFont", self).actual("family")),
+        )
+        self.mono_font = select_font_family(
+            available_fonts,
+            ("Cascadia Mono", "Consolas"),
+            str(tkfont.nametofont("TkFixedFont", self).actual("family")),
+        )
         self.title("密碼工具 GUI")
         self.geometry("1400x900")
         self.minsize(1100, 720)
@@ -355,13 +354,13 @@ class PasswordToolGUI(tk.Tk):
 
     def _build_style(self) -> None:
         self.configure(bg=BG)
-        self.option_add("*Font", (UI_FONT, 11))
+        self.option_add("*Font", (self.ui_font, 11))
         style = ttk.Style(self)
         try:
             style.theme_use("clam")
         except Exception:
             pass
-        style.configure(".", font=(UI_FONT, 11), background=BG, foreground=TEXT)
+        style.configure(".", font=(self.ui_font, 11), background=BG, foreground=TEXT)
         style.configure("App.TFrame", background=BG)
         style.configure("Shell.TFrame", background=BG)
         style.configure("TopBar.TFrame", background=SURFACE, relief="solid", borderwidth=1)
@@ -374,14 +373,14 @@ class PasswordToolGUI(tk.Tk):
         style.configure("Soft.TLabel", background=SURFACE_2, foreground=TEXT)
         style.configure("Card.TLabel", background=SURFACE, foreground=TEXT)
         style.configure("Muted.TLabel", background=SURFACE, foreground=MUTED)
-        style.configure("Title.TLabel", background=BG, foreground=TEXT, font=(UI_FONT, 20, "bold"))
-        style.configure("PanelTitle.TLabel", background=SURFACE, foreground=TEXT, font=(UI_FONT, 16, "bold"))
-        style.configure("Header.TLabel", background=BG, foreground=TEXT, font=(UI_FONT, 14, "bold"))
-        style.configure("PanelHeader.TLabel", background=SURFACE, foreground=TEXT, font=(UI_FONT, 13, "bold"))
-        style.configure("MetricValue.TLabel", background=SURFACE, foreground=TEXT, font=(MONO_FONT, 14, "bold"))
-        style.configure("MetricName.TLabel", background=SURFACE, foreground=MUTED, font=(UI_FONT, 10))
+        style.configure("Title.TLabel", background=BG, foreground=TEXT, font=(self.ui_font, 20, "bold"))
+        style.configure("PanelTitle.TLabel", background=SURFACE, foreground=TEXT, font=(self.ui_font, 16, "bold"))
+        style.configure("Header.TLabel", background=BG, foreground=TEXT, font=(self.ui_font, 14, "bold"))
+        style.configure("PanelHeader.TLabel", background=SURFACE, foreground=TEXT, font=(self.ui_font, 13, "bold"))
+        style.configure("MetricValue.TLabel", background=SURFACE, foreground=TEXT, font=(self.mono_font, 14, "bold"))
+        style.configure("MetricName.TLabel", background=SURFACE, foreground=MUTED, font=(self.ui_font, 10))
         style.configure("Status.TLabel", anchor="w", background=BG, foreground=MUTED)
-        style.configure("Pill.TLabel", background="#EAF2FF", foreground=ACCENT_DARK, padding=(10, 4), font=(UI_FONT, 10, "bold"))
+        style.configure("Pill.TLabel", background="#EAF2FF", foreground=ACCENT_DARK, padding=(10, 4), font=(self.ui_font, 10, "bold"))
         style.configure("TButton", padding=(12, 7), background=SURFACE, foreground=TEXT, bordercolor=BORDER, lightcolor=SURFACE, darkcolor=BORDER)
         style.map("TButton", background=[("active", SURFACE_2), ("pressed", "#E4EAF3")])
         style.configure("Accent.TButton", padding=(14, 8), background=ACCENT, foreground="#FFFFFF", bordercolor=ACCENT, lightcolor=ACCENT, darkcolor=ACCENT_DARK)
@@ -844,7 +843,7 @@ class PasswordToolGUI(tk.Tk):
             wrap="word",
             width=1,
             height=4,
-            font=(MONO_FONT, 11),
+            font=(self.mono_font, 11),
             background="#F8FAFC",
             foreground=TEXT,
             insertbackground=TEXT,
@@ -866,7 +865,7 @@ class PasswordToolGUI(tk.Tk):
             wrap="word",
             width=1,
             height=7,
-            font=(MONO_FONT, 10),
+            font=(self.mono_font, 10),
             background="#FFFFFF",
             foreground=TEXT,
             insertbackground=TEXT,
@@ -913,7 +912,7 @@ class PasswordToolGUI(tk.Tk):
         frame = self.help_tab
         frame.rowconfigure(0, weight=1)
         frame.columnconfigure(0, weight=1)
-        text = scrolledtext.ScrolledText(frame, wrap="word", font=(UI_FONT, 11))
+        text = scrolledtext.ScrolledText(frame, wrap="word", font=(self.ui_font, 11))
         text.grid(row=0, column=0, sticky="nsew")
         text.insert(
             "1.0",

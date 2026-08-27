@@ -5,7 +5,7 @@ a = Analysis(
     ['..\\PasswordToolsGUI.pyw'],
     pathex=[],
     binaries=[],
-    datas=[('..\\Iansui-Regular.ttf', '.')],
+    datas=[],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
