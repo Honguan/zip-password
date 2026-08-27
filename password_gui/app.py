@@ -1515,7 +1515,7 @@ class PasswordToolGUI(tk.Tk):
     def apply_detected_tools_to_ui(self) -> None:
         self._save_config()
         self.refresh_converters()
-        self.sync_config_to_ui()
+        self.sync_config_to_ui(sync_task_inputs=False)
         controller = self.__dict__.get("job_controller")
         if controller and controller.state not in {
             JobState.IDLE, JobState.SUCCEEDED, JobState.EXHAUSTED, JobState.FAILED, JobState.CANCELLED
@@ -1619,11 +1619,11 @@ class PasswordToolGUI(tk.Tk):
         self.john_wordlist.set(str(path))
         self.quick_status.set(f"本次工作使用字典：{item[0]}")
 
-    def sync_config_to_ui(self) -> None:
+    def sync_config_to_ui(self, sync_task_inputs: bool = True) -> None:
         for key in ("hashcat_path", "john_path", "john_run_dir", "python_path", "perl_path", "node_path", "output_dir"):
             if key in self.setting_vars:
                 self.setting_vars[key].set(str(getattr(self.config_data, key) or ""))
-        if hasattr(self, "quick_wordlist"):
+        if sync_task_inputs and hasattr(self, "quick_wordlist"):
             self.quick_wordlist.set(str(self.config_data.default_wordlist or ""))
             self.quick_combo_wordlist.set(str(self.config_data.combo_wordlist or ""))
             self.quick_combo_key.set(self.config_data.combo_key)
