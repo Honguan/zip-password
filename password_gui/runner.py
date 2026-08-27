@@ -106,19 +106,24 @@ class CommandRunner:
         return True
 
     def capture(
-        self, name: str, args: list[str], cwd: str | None = None
+        self, name: str, args: list[str], cwd: str | None = None, timeout: float | None = None
     ) -> subprocess.CompletedProcess[bytes]:
         proc = self._spawn(name, args, cwd, "capture")
         self.app.enqueue_status(f"{name} 執行中")
         error: Exception | None = None
         try:
-            stdout, stderr = proc.communicate()
+            stdout, stderr = proc.communicate() if timeout is None else proc.communicate(timeout=timeout)
             with self.lock:
                 if self.cancel_requested:
                     error = InterruptedError(f"{name} 已停止")
             if error:
                 raise InterruptedError(f"{name} 已停止")
             return subprocess.CompletedProcess(args, proc.returncode, stdout, stderr)
+        except subprocess.TimeoutExpired as exc:
+            error = exc
+            proc.kill()
+            proc.communicate()
+            raise
         except Exception as exc:
             error = exc
             raise
