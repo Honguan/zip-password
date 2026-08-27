@@ -72,7 +72,10 @@ def detect_hashcat_mode(hash_text: str) -> str:
     return ""
 
 
-def extract_passwords_from_show(text: str, engine: str) -> list[str]:
+def extract_passwords_from_show(text: str, engine: str, plaintext_only: bool = False) -> list[str]:
+    if plaintext_only:
+        return [line for line in text.splitlines() if line]
+
     passwords: list[str] = []
     for line in text.splitlines():
         line = line.strip()
