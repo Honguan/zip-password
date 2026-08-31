@@ -219,8 +219,17 @@ class UiModeTests(unittest.TestCase):
         try:
             mono = APP.tkfont.Font(gui, family=gui.mono_font, size=10)
             ui = APP.tkfont.Font(gui, family=gui.ui_font, size=11)
+            style = APP.ttk.Style(gui)
             self.assertEqual(mono.measure("iiii"), mono.measure("WWWW"))
             self.assertGreater(ui.measure("繁體中文"), 0)
+            self.assertEqual((APP.BG, APP.TEXT, APP.ACCENT, APP.DANGER), ("#F4F4F4", "#161616", "#0F62FE", "#DA1E28"))
+            self.assertEqual(style.lookup("Accent.TButton", "background"), APP.ACCENT)
+            self.assertEqual(style.lookup("Accent.TButton", "background", ("active",)), APP.ACCENT_HOVER)
+            self.assertEqual(style.lookup("Accent.TButton", "background", ("pressed",)), APP.ACCENT_DARK)
+            self.assertEqual(style.lookup("Accent.TButton", "background", ("disabled",)), APP.DISABLED_BG)
+            self.assertEqual(style.lookup("TEntry", "bordercolor", ("focus",)), APP.ACCENT)
+            self.assertEqual(style.lookup("TNotebook.Tab", "foreground", ("selected",)), APP.ACCENT)
+            self.assertEqual(style.lookup("Success.Pill.TLabel", "foreground"), APP.SUCCESS)
 
             for geometry in ("1100x720", "1366x768"):
                 gui.geometry(geometry)
