@@ -94,6 +94,20 @@ class AppConfig:
                 value = detected[key]
                 setattr(self, key, Path(value) if value else None)
 
+    def remap_path_root(self, legacy_root: Path, current_root: Path) -> bool:
+        changed = False
+        for key in PATH_FIELDS:
+            value = getattr(self, key)
+            if value is None:
+                continue
+            try:
+                relative = value.relative_to(legacy_root)
+            except ValueError:
+                continue
+            setattr(self, key, current_root / relative)
+            changed = True
+        return changed
+
 
 def read_config_file(path: Path) -> dict[str, object]:
     data = json.loads(path.read_text(encoding="utf-8"))

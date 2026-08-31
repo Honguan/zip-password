@@ -108,7 +108,8 @@ APP_DIR = (
     if getattr(sys, "frozen", False)
     else Path(__file__).resolve().parent.parent
 )
-TOOLS_DIR = APP_DIR / "密碼工具GUI_tools"
+TOOLS_DIR = APP_DIR / "PasswordToolsGUI_tools"
+LEGACY_TOOLS_DIR = APP_DIR / "密碼工具GUI_tools"
 DOWNLOADS_DIR = TOOLS_DIR / "downloads"
 TOOL_TMP_DIR = TOOLS_DIR / "tmp"
 WORDLISTS_DIR = TOOLS_DIR / "wordlists"
@@ -119,7 +120,8 @@ LEGACY_CONFIG_NAMES = [
     "PasswordToolsGUI_config.json",
     "password_tools_gui_config.json",
 ]
-RESULTS_DIR = APP_DIR / "密碼工具GUI_輸出"
+RESULTS_DIR = APP_DIR / "PasswordToolsGUI_output"
+LEGACY_RESULTS_DIR = APP_DIR / "密碼工具GUI_輸出"
 BG = "#F4F4F4"
 SURFACE = "#FFFFFF"
 SURFACE_2 = "#E8E8E8"
@@ -244,6 +246,68 @@ def default_config() -> AppConfig:
     return config
 
 
+def validate_legacy_directory(legacy: Path, current: Path) -> bool:
+    if not legacy.exists():
+        return False
+    if not legacy.is_dir():
+        raise RuntimeError(f"舊執行路徑不是資料夾：{legacy}")
+    try:
+        if current.exists():
+            if not current.is_dir() or any(current.iterdir()):
+                raise RuntimeError(f"新舊執行資料夾同時存在，請手動合併後重新啟動：{legacy}、{current}")
+    except OSError as exc:
+        raise RuntimeError(f"無法檢查執行資料夾 {legacy}、{current}：{exc}") from exc
+    return True
+
+
+def migrate_legacy_directory(legacy: Path, current: Path) -> bool:
+    if not validate_legacy_directory(legacy, current):
+        return False
+    try:
+        if current.exists():
+            current.rmdir()
+        legacy.rename(current)
+    except OSError as exc:
+        raise RuntimeError(f"無法遷移執行資料夾 {legacy} 至 {current}：{exc}") from exc
+    return True
+
+
+def migrate_legacy_runtime_dirs() -> bool:
+    directories = (
+        (LEGACY_TOOLS_DIR, TOOLS_DIR),
+        (LEGACY_RESULTS_DIR, RESULTS_DIR),
+    )
+    for legacy, current in directories:
+        validate_legacy_directory(legacy, current)
+    migrated: list[tuple[Path, Path]] = []
+    try:
+        for legacy, current in directories:
+            if migrate_legacy_directory(legacy, current):
+                migrated.append((legacy, current))
+    except RuntimeError as exc:
+        rollback_errors = []
+        for legacy, current in reversed(migrated):
+            try:
+                current.rename(legacy)
+            except OSError as rollback_exc:
+                rollback_errors.append(f"{current}：{rollback_exc}")
+        if rollback_errors:
+            raise RuntimeError(f"{exc}；回復已遷移資料夾失敗：{'；'.join(rollback_errors)}") from exc
+        raise
+    return bool(migrated)
+
+
+def upgrade_config_runtime_paths(config: AppConfig) -> bool:
+    changed = False
+    for legacy, current in (
+        (LEGACY_TOOLS_DIR, TOOLS_DIR),
+        (LEGACY_RESULTS_DIR, RESULTS_DIR),
+    ):
+        if not legacy.exists():
+            changed = config.remap_path_root(legacy, current) or changed
+    return changed
+
+
 def config_search_paths() -> list[Path]:
     return [CONFIG_PATH, *(APP_DIR / name for name in LEGACY_CONFIG_NAMES)]
 
@@ -257,12 +321,13 @@ def load_config() -> tuple[AppConfig, str, Path | None]:
     cfg, error, loaded_path = load_config_file(cfg, config_search_paths())
     if error:
         return cfg, error, loaded_path
+    paths_upgraded = upgrade_config_runtime_paths(cfg)
     cfg.update_tool_paths(find_tool_paths(cfg.tool_paths(), TOOLS_DIR))
-    if loaded_path and loaded_path != CONFIG_PATH:
+    if loaded_path and (loaded_path != CONFIG_PATH or paths_upgraded):
         try:
             save_config(cfg)
-        except Exception:
-            pass
+        except Exception as exc:
+            return cfg, f"遷移設定路徑後無法寫入 {CONFIG_PATH}：{type(exc).__name__}: {exc}", loaded_path
     return cfg, "", loaded_path
 
 
@@ -349,6 +414,11 @@ class PasswordToolGUI(tk.Tk):
         self.title("密碼工具 GUI")
         self.geometry("1400x900")
         self.minsize(1100, 720)
+        self.runtime_migration_error = ""
+        try:
+            migrate_legacy_runtime_dirs()
+        except RuntimeError as exc:
+            self.runtime_migration_error = str(exc)
         self.config_data, self.config_load_error, self.config_load_source = load_config()
         self.log_queue: queue.Queue[str] = queue.Queue(maxsize=UI_QUEUE_LIMIT)
         self.status_queue: queue.Queue[str] = queue.Queue(maxsize=UI_QUEUE_LIMIT)
@@ -367,7 +437,9 @@ class PasswordToolGUI(tk.Tk):
         self.setting_vars: dict[str, tk.StringVar] = {}
         self._build_style()
         self._build_ui()
-        if self.config_load_error:
+        if self.runtime_migration_error:
+            self.after(0, self._show_runtime_migration_error)
+        elif self.config_load_error:
             self.after(0, self._show_config_load_error)
         elif self.config_load_source and self.config_load_source != CONFIG_PATH:
             self.after(0, self._show_config_migration)
@@ -1548,9 +1620,14 @@ class PasswordToolGUI(tk.Tk):
         if getattr(self, "_startup_tools_checked", False):
             return
         self._startup_tools_checked = True
+        if self.__dict__.get("runtime_migration_error"):
+            return
         self.ensure_tools_async(force_download=False)
 
     def ensure_tools_async(self, force_download: bool = False) -> None:
+        if self.__dict__.get("runtime_migration_error"):
+            self.enqueue_status("執行資料夾需要手動處理")
+            return
         if not self._tools_setup_lock.acquire(blocking=False):
             self.enqueue_status("工具環境檢查已在執行")
             return
@@ -1737,6 +1814,15 @@ class PasswordToolGUI(tk.Tk):
             f"{summary}\n\n原因：{self.config_load_error}\n\n只有按下「儲存設定」後才會覆寫設定檔。",
         )
 
+    def _show_runtime_migration_error(self) -> None:
+        summary = "舊執行資料夾遷移失敗；原資料未刪除，也不會自動下載工具。"
+        self.quick_status.set(summary)
+        self.set_status("執行資料夾需要手動處理")
+        messagebox.showwarning(
+            "執行資料夾遷移失敗",
+            f"{summary}\n\n原因：{self.runtime_migration_error}",
+        )
+
     def _show_config_migration(self) -> None:
         summary = f"舊設定已從 {self.config_load_source} 遷移至 {CONFIG_PATH}。"
         self.quick_status.set(summary)
@@ -1766,6 +1852,7 @@ class PasswordToolGUI(tk.Tk):
         try:
             data = read_config_file(Path(path))
             self.config_data = AppConfig.from_mapping(data, default_config())
+            upgrade_config_runtime_paths(self.config_data)
             self._save_config(explicit=True)
             self.sync_config_to_ui()
             self.refresh_converters()
@@ -2018,6 +2105,8 @@ class PasswordToolGUI(tk.Tk):
 
     def _auto_workflow(self, src: Path, wordlist: str, settings: dict[str, object]) -> None:
         try:
+            if migration_error := self.__dict__.get("runtime_migration_error"):
+                raise SetupError(f"執行資料夾遷移尚未完成：{migration_error}")
             self.job_controller.transition(JobState.CHECKING_ENV)
             self._ensure_tools_worker(bool(settings["auto_download"]))
             if self.conversion_cancel.is_set():
@@ -2930,7 +3019,6 @@ class PasswordToolGUI(tk.Tk):
 
 
 def main() -> None:
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     app = PasswordToolGUI()
     app.mainloop()
 
