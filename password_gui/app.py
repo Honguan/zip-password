@@ -125,7 +125,6 @@ SURFACE = "#FFFFFF"
 SURFACE_2 = "#E8E8E8"
 TEXT = "#161616"
 MUTED = "#525252"
-PLACEHOLDER = "#8D8D8D"
 BORDER = "#C6C6C6"
 BORDER_STRONG = "#8D8D8D"
 ACCENT = "#0F62FE"
@@ -414,7 +413,7 @@ class PasswordToolGUI(tk.Tk):
         style.configure("MetricName.TLabel", background=SURFACE, foreground=MUTED, font=(self.ui_font, 10))
         style.configure("Status.TLabel", anchor="w", background=BG, foreground=MUTED)
         style.configure("Technical.TLabel", background=BG, foreground=MUTED, font=(self.mono_font, 10))
-        style.configure("Pill.TLabel", background=INFO_BG, foreground=INFO, padding=(10, 4), font=(self.ui_font, 10, "bold"))
+        style.configure("Pill.TLabel", background=INFO_BG, foreground=INFO, padding=(8, 4), font=(self.ui_font, 10, "bold"))
         style.configure("Info.Pill.TLabel", background=INFO_BG, foreground=INFO)
         style.configure("Success.Pill.TLabel", background=SUCCESS_BG, foreground=SUCCESS)
         style.configure("Warning.Pill.TLabel", background=WARNING_BG, foreground=TEXT)
@@ -432,19 +431,19 @@ class PasswordToolGUI(tk.Tk):
             foreground=[("disabled", DISABLED_TEXT)],
             bordercolor=[("focus", ACCENT), ("active", BORDER_STRONG)],
         )
-        style.configure("Accent.TButton", padding=(14, 8), background=ACCENT, foreground="#FFFFFF", bordercolor=ACCENT, lightcolor=ACCENT, darkcolor=ACCENT_DARK)
+        style.configure("Accent.TButton", padding=(14, 8), background=ACCENT, foreground=SURFACE, bordercolor=ACCENT, lightcolor=ACCENT, darkcolor=ACCENT_DARK)
         style.map(
             "Accent.TButton",
             background=[("disabled", DISABLED_BG), ("pressed", ACCENT_DARK), ("active", ACCENT_HOVER)],
             foreground=[("disabled", DISABLED_TEXT)],
-            bordercolor=[("focus", TEXT)],
+            bordercolor=[("focus", ACCENT)],
         )
-        style.configure("Danger.TButton", padding=(12, 7), background=DANGER, foreground="#FFFFFF", bordercolor=DANGER)
+        style.configure("Danger.TButton", padding=(12, 7), background=DANGER, foreground=SURFACE, bordercolor=DANGER)
         style.map(
             "Danger.TButton",
             background=[("disabled", DISABLED_BG), ("pressed", DANGER_HOVER), ("active", DANGER_HOVER)],
             foreground=[("disabled", DISABLED_TEXT)],
-            bordercolor=[("focus", TEXT)],
+            bordercolor=[("focus", ACCENT)],
         )
         style.configure("TEntry", fieldbackground=SURFACE, foreground=TEXT, bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER, padding=6)
         style.configure("Technical.TEntry", font=(self.mono_font, 10))
