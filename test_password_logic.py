@@ -5,6 +5,20 @@ import password_logic as logic
 
 
 class PasswordLogicTests(TestCase):
+    def test_commands_preserve_unicode_input_and_custom_output_paths(self):
+        hash_path = Path("C:/測試資料/雜湊.txt")
+        wordlist = "C:/使用者字典/常用.txt"
+        output = Path("D:/自訂輸出/結果.txt")
+
+        command = logic.build_auto_hashcat_command(
+            "hashcat.exe", hash_path, "0", wordlist, output,
+            Path("auto.hcmask"), Path("C:/來源/壓縮包.zip"), "", "dict",
+        )
+
+        self.assertIn(str(hash_path), command)
+        self.assertIn(wordlist, command)
+        self.assertIn(str(output), command)
+
     def test_auto_hashcat_command_preserves_dictionary_arguments(self):
         source = Path("sample.zip")
         command = logic.build_auto_hashcat_command(

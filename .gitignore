@@ -6,6 +6,8 @@ dist/
 release/
 *.exe
 password_gui_config.json
+PasswordToolsGUI_tools/
+PasswordToolsGUI_output/
 密碼工具GUI_tools/
 密碼工具GUI_輸出/
 hashcat/

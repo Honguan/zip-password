@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-`PasswordToolsGUI.pyw` is the primary application: a Windows Tkinter GUI that discovers, downloads, and runs password-analysis tools. Runtime settings live in `password_gui_config.json`. The interface uses Windows system fonts with Tk fallbacks. `密碼工具GUI_tools/` contains managed downloads, wordlists, and John the Ripper files; `hashcat/` and `JohnRipper/` are external tool distributions. Treat `build/`, `__pycache__/`, `密碼工具GUI_輸出/`, logs, hashes, and generated executables as artifacts rather than source.
+`PasswordToolsGUI.pyw` is the primary application: a Windows Tkinter GUI that discovers, downloads, and runs password-analysis tools. Runtime settings live in `password_gui_config.json`. The interface uses Windows system fonts with Tk fallbacks. `PasswordToolsGUI_tools/` contains managed downloads, wordlists, and John the Ripper files; `hashcat/` and `JohnRipper/` are external tool distributions. Treat `build/`, `__pycache__/`, `PasswordToolsGUI_output/`, logs, hashes, and generated executables as artifacts rather than source. The legacy Chinese runtime directories are migrated automatically and remain ignored.
 
 ## Build, Test, and Development Commands
 
