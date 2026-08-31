@@ -251,6 +251,23 @@ class AutoStagesTests(TestCase):
             self.assertEqual(cracked.read_text(encoding="utf-8"), "abc:def\n")
             complete.assert_called_once_with(None)
 
+    def test_stage_completion_waits_for_show_finalization(self):
+        gui = self.make_start_gui()
+        gui.runner.start.return_value = True
+        gui.finalize_auto_cracked = Mock()
+        complete = Mock()
+
+        self.assertTrue(gui.start_auto_command(
+            "mask 6", ["hashcat", "-a", "3", "hash.txt", "?d?d?d?d?d?d"], None,
+            Path("session.log"), "hashcat", Path("hash.txt"), "0 - MD5",
+            Path("cracked.txt"), on_finish=complete,
+        ))
+        gui.runner.start.call_args.kwargs["on_finish"](0, False)
+
+        complete.assert_not_called()
+        gui.finalize_auto_cracked.call_args.args[-1](None)
+        complete.assert_called_once_with(0, False, None)
+
 
 if __name__ == "__main__":
     main()
