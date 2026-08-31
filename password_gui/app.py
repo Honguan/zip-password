@@ -196,6 +196,19 @@ DEFAULT_CANDIDATE_SOURCES = {
     AttackStrategy.HINTS: "提示詞組合",
     AttackStrategy.MASK: "純暴力",
 }
+JOB_STATUS_KINDS = {
+    JobState.IDLE: "Neutral",
+    JobState.PREPARING: "Info",
+    JobState.CHECKING_ENV: "Info",
+    JobState.CONVERTING: "Info",
+    JobState.BUILDING_CANDIDATES: "Info",
+    JobState.RUNNING: "Info",
+    JobState.STOPPING: "Warning",
+    JobState.SUCCEEDED: "Success",
+    JobState.EXHAUSTED: "Warning",
+    JobState.FAILED: "Danger",
+    JobState.CANCELLED: "Neutral",
+}
 
 UI_QUEUE_LIMIT = 2_000
 UI_QUEUE_ITEMS_PER_TICK = 100
@@ -382,7 +395,10 @@ class PasswordToolGUI(tk.Tk):
         style.configure("TopBar.TFrame", background=SURFACE, relief="solid", borderwidth=1)
         style.configure("TopBarInner.TFrame", background=SURFACE)
         style.configure("Panel.TFrame", background=SURFACE, relief="solid", borderwidth=1)
+        style.configure("PanelBody.TFrame", background=SURFACE)
         style.configure("Card.TFrame", background=SURFACE, relief="solid", borderwidth=1)
+        style.configure("CardBody.TFrame", background=SURFACE)
+        style.configure("Step.TFrame", background=SURFACE, relief="solid", borderwidth=1, bordercolor=BORDER)
         style.configure("Soft.TFrame", background=SURFACE_2)
         style.configure("TLabel", padding=(0, 2), background=BG, foreground=TEXT)
         style.configure("Panel.TLabel", background=SURFACE, foreground=TEXT)
@@ -393,6 +409,7 @@ class PasswordToolGUI(tk.Tk):
         style.configure("PanelTitle.TLabel", background=SURFACE, foreground=TEXT, font=(self.ui_font, 16, "bold"))
         style.configure("Header.TLabel", background=BG, foreground=TEXT, font=(self.ui_font, 14, "bold"))
         style.configure("PanelHeader.TLabel", background=SURFACE, foreground=TEXT, font=(self.ui_font, 13, "bold"))
+        style.configure("StepHeader.TLabel", background=SURFACE, foreground=ACCENT, font=(self.ui_font, 13, "bold"))
         style.configure("MetricValue.TLabel", background=SURFACE, foreground=TEXT, font=(self.mono_font, 14, "bold"))
         style.configure("MetricName.TLabel", background=SURFACE, foreground=MUTED, font=(self.ui_font, 10))
         style.configure("Status.TLabel", anchor="w", background=BG, foreground=MUTED)
@@ -402,6 +419,11 @@ class PasswordToolGUI(tk.Tk):
         style.configure("Warning.Pill.TLabel", background=WARNING_BG, foreground=TEXT)
         style.configure("Danger.Pill.TLabel", background=DANGER_BG, foreground=DANGER)
         style.configure("Neutral.Pill.TLabel", background=SURFACE_2, foreground=MUTED)
+        style.configure("Info.Soft.TLabel", background=INFO_BG, foreground=INFO, padding=(6, 2))
+        style.configure("Success.Soft.TLabel", background=SUCCESS_BG, foreground=SUCCESS, padding=(6, 2))
+        style.configure("Warning.Soft.TLabel", background=WARNING_BG, foreground=TEXT, padding=(6, 2))
+        style.configure("Danger.Soft.TLabel", background=DANGER_BG, foreground=DANGER, padding=(6, 2))
+        style.configure("Neutral.Soft.TLabel", background=SURFACE_2, foreground=MUTED, padding=(6, 2))
         style.configure("TButton", padding=(12, 7), background=SURFACE, foreground=TEXT, bordercolor=BORDER, lightcolor=SURFACE, darkcolor=BORDER)
         style.map(
             "TButton",
@@ -463,7 +485,8 @@ class PasswordToolGUI(tk.Tk):
         topbar.columnconfigure(0, weight=1)
         ttk.Label(topbar, text="密碼工具 GUI", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(topbar, text="選擇目標、候選來源與策略，開始分析", style="Muted.TLabel").grid(row=1, column=0, sticky="w", pady=(4, 0))
-        ttk.Label(topbar, textvariable=self.status_var, style="Pill.TLabel").grid(row=0, column=1, rowspan=2, sticky="e", padx=(12, 14))
+        self.status_pill = ttk.Label(topbar, textvariable=self.status_var, style="Neutral.Pill.TLabel")
+        self.status_pill.grid(row=0, column=1, rowspan=2, sticky="e", padx=(12, 14))
         top_actions = ttk.Frame(topbar, style="TopBarInner.TFrame")
         top_actions.grid(row=0, column=2, rowspan=2, sticky="e")
         self.advanced_toggle = ttk.Button(top_actions, command=lambda: self.set_advanced_visible(not self._advanced_visible))
@@ -554,14 +577,15 @@ class PasswordToolGUI(tk.Tk):
             parent, text=f"選擇檔案、候選來源與策略即可開始；支援 {supported_format_summary()}。", style="Muted.TLabel"
         ).grid(row=1, column=0, sticky="w", pady=(4, 12))
 
-        self.task_cards = ttk.Frame(parent, style="Panel.TFrame")
+        self.task_cards = ttk.Frame(parent, style="PanelBody.TFrame")
         self.task_cards.grid(row=2, column=0, sticky="nsew")
         self.task_cards.columnconfigure(0, weight=1)
 
         self.target_card = self._card(self.task_cards, 0, 0, pady=(0, 10))
         self.target_card.columnconfigure(0, weight=1)
-        ttk.Label(self.target_card, text="1  目標檔案", style="PanelHeader.TLabel").grid(row=0, column=0, sticky="w")
-        file_box = ttk.Frame(self.target_card, style="Card.TFrame")
+        self.target_card.configure(style="Step.TFrame")
+        ttk.Label(self.target_card, text="1  目標檔案", style="StepHeader.TLabel").grid(row=0, column=0, sticky="w")
+        file_box = ttk.Frame(self.target_card, style="CardBody.TFrame")
         file_box.grid(row=1, column=0, sticky="ew", pady=(10, 8))
         file_box.columnconfigure(0, weight=1)
         ttk.Entry(file_box, textvariable=self.quick_input).grid(row=0, column=0, sticky="ew")
@@ -570,23 +594,24 @@ class PasswordToolGUI(tk.Tk):
 
         self.candidate_card = self._card(self.task_cards, 1, 0, pady=(0, 10))
         self.candidate_card.columnconfigure(0, weight=1)
-        ttk.Label(self.candidate_card, text="2  候選來源", style="PanelHeader.TLabel").grid(row=0, column=0, sticky="w")
+        self.candidate_card.configure(style="Step.TFrame")
+        ttk.Label(self.candidate_card, text="2  候選來源", style="StepHeader.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Combobox(
             self.candidate_card,
             textvariable=self.candidate_source,
             values=list(CANDIDATE_SOURCE_STRATEGIES),
             state="readonly",
         ).grid(row=1, column=0, sticky="ew", pady=(10, 8))
-        self.candidate_fields = ttk.Frame(self.candidate_card, style="Card.TFrame")
+        self.candidate_fields = ttk.Frame(self.candidate_card, style="CardBody.TFrame")
         self.candidate_fields.grid(row=2, column=0, sticky="ew")
         self.candidate_fields.columnconfigure(0, weight=1)
         self.candidate_source_frames: dict[str, ttk.Frame] = {}
 
-        auto_frame = ttk.Frame(self.candidate_fields, style="Card.TFrame")
+        auto_frame = ttk.Frame(self.candidate_fields, style="CardBody.TFrame")
         ttk.Label(auto_frame, text="自動使用字典庫、提示詞與遮罩。", style="Muted.TLabel").grid(sticky="w")
         self.candidate_source_frames["自動"] = auto_frame
 
-        common_frame = ttk.Frame(self.candidate_fields, style="Card.TFrame")
+        common_frame = ttk.Frame(self.candidate_fields, style="CardBody.TFrame")
         common_frame.columnconfigure(0, weight=1)
         ttk.Combobox(common_frame, textvariable=self.common_wordlist, values=[item[0] for item in COMMON_WORDLISTS], state="readonly").grid(row=0, column=0, sticky="ew")
         self.common_wordlist_download_button = ttk.Button(common_frame, text="下載", command=self.download_selected_wordlist)
@@ -594,15 +619,15 @@ class PasswordToolGUI(tk.Tk):
         ttk.Button(common_frame, text="套用", command=self.use_selected_common_wordlist).grid(row=0, column=2, padx=(8, 0))
         self.candidate_source_frames["常用字典"] = common_frame
 
-        custom_frame = ttk.Frame(self.candidate_fields, style="Card.TFrame")
+        custom_frame = ttk.Frame(self.candidate_fields, style="CardBody.TFrame")
         custom_frame.columnconfigure(0, weight=1)
         ttk.Entry(custom_frame, textvariable=self.quick_wordlist).grid(row=0, column=0, sticky="ew")
         ttk.Button(custom_frame, text="瀏覽", command=lambda: self._browse_file(self.quick_wordlist)).grid(row=0, column=1, padx=(8, 0))
         self.candidate_source_frames["自訂字典"] = custom_frame
 
-        hints_frame = ttk.Frame(self.candidate_fields, style="Card.TFrame")
+        hints_frame = ttk.Frame(self.candidate_fields, style="CardBody.TFrame")
         hints_frame.columnconfigure(0, weight=1)
-        combo_box = ttk.Frame(hints_frame, style="Card.TFrame")
+        combo_box = ttk.Frame(hints_frame, style="CardBody.TFrame")
         combo_box.grid(row=0, column=0, sticky="ew", pady=(0, 6))
         combo_box.columnconfigure(0, weight=1)
         ttk.Entry(combo_box, textvariable=self.quick_combo_wordlist).grid(row=0, column=0, sticky="ew")
@@ -610,13 +635,14 @@ class PasswordToolGUI(tk.Tk):
         ttk.Entry(hints_frame, textvariable=self.quick_combo_key).grid(row=1, column=0, sticky="ew")
         self.candidate_source_frames["提示詞組合"] = hints_frame
 
-        brute_frame = ttk.Frame(self.candidate_fields, style="Card.TFrame")
+        brute_frame = ttk.Frame(self.candidate_fields, style="CardBody.TFrame")
         ttk.Label(brute_frame, text="使用自動遮罩進行純暴力分析。", style="Muted.TLabel").grid(sticky="w")
         self.candidate_source_frames["純暴力"] = brute_frame
 
         self.strategy_card = self._card(self.task_cards, 2, 0, pady=(0, 10))
         self.strategy_card.columnconfigure(0, weight=1)
-        ttk.Label(self.strategy_card, text="3  執行策略摘要", style="PanelHeader.TLabel").grid(row=0, column=0, sticky="w")
+        self.strategy_card.configure(style="Step.TFrame")
+        ttk.Label(self.strategy_card, text="3  執行策略摘要", style="StepHeader.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(self.strategy_card, textvariable=self.quick_strategy, style="Card.TLabel").grid(
             row=1, column=0, sticky="w", pady=(10, 6)
         )
@@ -632,7 +658,8 @@ class PasswordToolGUI(tk.Tk):
         status_box = ttk.Frame(parent, padding=(10, 8), style="Soft.TFrame")
         status_box.grid(row=4, column=0, sticky="ew")
         status_box.columnconfigure(0, weight=1)
-        ttk.Label(status_box, textvariable=self.quick_status, style="Soft.TLabel").grid(row=0, column=0, sticky="w")
+        self.quick_status_label = ttk.Label(status_box, textvariable=self.quick_status, style="Warning.Soft.TLabel")
+        self.quick_status_label.grid(row=0, column=0, sticky="w")
 
         for variable in (
             self.quick_input,
@@ -713,6 +740,7 @@ class PasswordToolGUI(tk.Tk):
         self.quick_start_button.state(["disabled"] if reason else ["!disabled"])
         if update_status:
             self.quick_status.set(reason or "條件已完成，可以開始分析。")
+            self.quick_status_label.configure(style="Warning.Soft.TLabel" if reason else "Success.Soft.TLabel")
 
     def _browse_quick_file(self) -> None:
         path = filedialog.askopenfilename(filetypes=[("支援檔案", supported_file_pattern()), ("所有檔案", "*.*")])
@@ -1000,7 +1028,7 @@ class PasswordToolGUI(tk.Tk):
         cracked_card.columnconfigure(0, weight=1)
         ttk.Label(cracked_card, textvariable=self.result_title_var, style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(cracked_card, textvariable=self.result_hint_var, style="Muted.TLabel").grid(row=1, column=0, sticky="w", pady=(4, 8))
-        cracked_actions = ttk.Frame(cracked_card, style="Card.TFrame")
+        cracked_actions = ttk.Frame(cracked_card, style="CardBody.TFrame")
         cracked_actions.grid(row=0, column=1, rowspan=2, sticky="e", pady=(0, 8))
         self.copy_result_button = ttk.Button(cracked_actions, text="複製密碼", command=self.copy_cracked_passwords)
         self.copy_result_button.pack(side="left", padx=(0, 8))
@@ -1273,6 +1301,11 @@ class PasswordToolGUI(tk.Tk):
             self.quick_status.set(messages[snapshot.state])
         if "status_var" in self.__dict__:
             self.status_var.set(label)
+        if "status_pill" in self.__dict__:
+            kind = JOB_STATUS_KINDS[snapshot.state]
+            self.status_pill.configure(style=f"{kind}.Pill.TLabel")
+            if "quick_status_label" in self.__dict__:
+                self.quick_status_label.configure(style=f"{kind}.Soft.TLabel")
         if "output_status_var" in self.__dict__:
             self.output_status_var.set(label)
             self.output_job_var.set(
