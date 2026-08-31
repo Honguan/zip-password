@@ -120,15 +120,28 @@ LEGACY_CONFIG_NAMES = [
     "password_tools_gui_config.json",
 ]
 RESULTS_DIR = APP_DIR / "密碼工具GUI_輸出"
-BG = "#F3F6FA"
+BG = "#F4F4F4"
 SURFACE = "#FFFFFF"
-SURFACE_2 = "#EEF3F8"
-TEXT = "#172033"
-MUTED = "#667085"
-BORDER = "#D7DEE8"
-ACCENT = "#2563EB"
-ACCENT_DARK = "#1E40AF"
-DANGER = "#DC2626"
+SURFACE_2 = "#E8E8E8"
+TEXT = "#161616"
+MUTED = "#525252"
+PLACEHOLDER = "#8D8D8D"
+BORDER = "#C6C6C6"
+BORDER_STRONG = "#8D8D8D"
+ACCENT = "#0F62FE"
+ACCENT_HOVER = "#0353E9"
+ACCENT_DARK = "#002D9C"
+DANGER = "#DA1E28"
+DANGER_HOVER = "#BA1B23"
+SUCCESS = "#24A148"
+WARNING = "#F1C21B"
+INFO = "#0043CE"
+DISABLED_BG = "#C6C6C6"
+DISABLED_TEXT = "#8D8D8D"
+INFO_BG = "#D0E2FF"
+SUCCESS_BG = "#A7F0BA"
+WARNING_BG = "#FDDC69"
+DANGER_BG = "#FFD7D9"
 HASHCAT_DOWNLOAD_PAGE = "https://hashcat.net/hashcat/"
 JOHN_RELEASE_PAGE = "https://github.com/openwall/john-packages/releases/latest"
 HASHCAT_ARCHIVE_URL = "https://github.com/hashcat/hashcat/releases/download/v7.1.2/hashcat-7.1.2.7z"
@@ -383,21 +396,59 @@ class PasswordToolGUI(tk.Tk):
         style.configure("MetricValue.TLabel", background=SURFACE, foreground=TEXT, font=(self.mono_font, 14, "bold"))
         style.configure("MetricName.TLabel", background=SURFACE, foreground=MUTED, font=(self.ui_font, 10))
         style.configure("Status.TLabel", anchor="w", background=BG, foreground=MUTED)
-        style.configure("Pill.TLabel", background="#EAF2FF", foreground=ACCENT_DARK, padding=(10, 4), font=(self.ui_font, 10, "bold"))
+        style.configure("Pill.TLabel", background=INFO_BG, foreground=INFO, padding=(10, 4), font=(self.ui_font, 10, "bold"))
+        style.configure("Info.Pill.TLabel", background=INFO_BG, foreground=INFO)
+        style.configure("Success.Pill.TLabel", background=SUCCESS_BG, foreground=SUCCESS)
+        style.configure("Warning.Pill.TLabel", background=WARNING_BG, foreground=TEXT)
+        style.configure("Danger.Pill.TLabel", background=DANGER_BG, foreground=DANGER)
+        style.configure("Neutral.Pill.TLabel", background=SURFACE_2, foreground=MUTED)
         style.configure("TButton", padding=(12, 7), background=SURFACE, foreground=TEXT, bordercolor=BORDER, lightcolor=SURFACE, darkcolor=BORDER)
-        style.map("TButton", background=[("active", SURFACE_2), ("pressed", "#E4EAF3")])
+        style.map(
+            "TButton",
+            background=[("disabled", DISABLED_BG), ("pressed", BORDER), ("active", SURFACE_2)],
+            foreground=[("disabled", DISABLED_TEXT)],
+            bordercolor=[("focus", ACCENT), ("active", BORDER_STRONG)],
+        )
         style.configure("Accent.TButton", padding=(14, 8), background=ACCENT, foreground="#FFFFFF", bordercolor=ACCENT, lightcolor=ACCENT, darkcolor=ACCENT_DARK)
-        style.map("Accent.TButton", background=[("active", ACCENT_DARK), ("pressed", ACCENT_DARK)], foreground=[("disabled", "#DBEAFE")])
-        style.configure("Danger.TButton", padding=(12, 7), background="#FEF2F2", foreground=DANGER, bordercolor="#FECACA")
-        style.map("Danger.TButton", background=[("active", "#FEE2E2"), ("pressed", "#FECACA")])
+        style.map(
+            "Accent.TButton",
+            background=[("disabled", DISABLED_BG), ("pressed", ACCENT_DARK), ("active", ACCENT_HOVER)],
+            foreground=[("disabled", DISABLED_TEXT)],
+            bordercolor=[("focus", TEXT)],
+        )
+        style.configure("Danger.TButton", padding=(12, 7), background=DANGER, foreground="#FFFFFF", bordercolor=DANGER)
+        style.map(
+            "Danger.TButton",
+            background=[("disabled", DISABLED_BG), ("pressed", DANGER_HOVER), ("active", DANGER_HOVER)],
+            foreground=[("disabled", DISABLED_TEXT)],
+            bordercolor=[("focus", TEXT)],
+        )
         style.configure("TEntry", fieldbackground=SURFACE, foreground=TEXT, bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER, padding=6)
+        style.map(
+            "TEntry",
+            fieldbackground=[("disabled", SURFACE_2), ("readonly", SURFACE_2)],
+            foreground=[("disabled", DISABLED_TEXT), ("readonly", MUTED)],
+            bordercolor=[("focus", ACCENT), ("invalid", DANGER)],
+        )
         style.configure("TCombobox", fieldbackground=SURFACE, foreground=TEXT, bordercolor=BORDER, padding=5)
+        style.map(
+            "TCombobox",
+            fieldbackground=[("disabled", SURFACE_2), ("readonly", SURFACE)],
+            foreground=[("disabled", DISABLED_TEXT), ("readonly", TEXT)],
+            bordercolor=[("focus", ACCENT), ("invalid", DANGER)],
+        )
         style.configure("TCheckbutton", background=BG, foreground=TEXT)
         style.configure("Card.TCheckbutton", background=SURFACE, foreground=TEXT)
         style.configure("TRadiobutton", background=BG, foreground=TEXT)
+        for widget_style in ("TCheckbutton", "Card.TCheckbutton", "TRadiobutton"):
+            style.map(widget_style, foreground=[("disabled", DISABLED_TEXT)])
         style.configure("TNotebook", background=BG, borderwidth=0)
-        style.configure("TNotebook.Tab", background="#E6ECF4", foreground=MUTED, padding=(16, 9), borderwidth=0)
-        style.map("TNotebook.Tab", background=[("selected", SURFACE), ("active", "#F8FAFC")], foreground=[("selected", ACCENT), ("active", TEXT)])
+        style.configure("TNotebook.Tab", background=SURFACE_2, foreground=MUTED, padding=(16, 9), borderwidth=0)
+        style.map(
+            "TNotebook.Tab",
+            background=[("selected", SURFACE), ("active", BORDER)],
+            foreground=[("disabled", DISABLED_TEXT), ("selected", ACCENT), ("active", TEXT)],
+        )
         style.configure("Horizontal.TProgressbar", troughcolor=SURFACE_2, background=ACCENT, bordercolor=SURFACE_2, lightcolor=ACCENT, darkcolor=ACCENT)
 
     def _build_ui(self) -> None:
