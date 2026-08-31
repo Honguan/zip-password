@@ -29,6 +29,7 @@ class AttackStrategy(str, Enum):
 
 @dataclass
 class AppConfig:
+    language: str = "zh-TW"
     hashcat_path: Path | None = None
     john_path: Path | None = None
     john_run_dir: Path | None = None
@@ -65,6 +66,8 @@ class AppConfig:
                 if not isinstance(value, str):
                     raise ValueError("設定 combo_key 必須是字串")
                 config.combo_key = value
+            elif key == "language":
+                config.language = value if value in {"en", "zh-TW"} else defaults.language
         if "attack_strategy" not in data and "auto_follow_order" in data:
             legacy = data["auto_follow_order"]
             if not isinstance(legacy, bool) and not (isinstance(legacy, str) and legacy in {"1", "0"}):

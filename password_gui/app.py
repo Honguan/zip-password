@@ -102,6 +102,7 @@ from password_gui.job import (
     UnsupportedFormatError,
 )
 from password_gui.workflow import attack_steps
+from password_gui.i18n import LANGUAGES, normalize_language, source_text, translate
 
 
 APP_DIR = (
@@ -427,7 +428,6 @@ class PasswordToolGUI(tk.Tk):
             ("Cascadia Mono", "Consolas"),
             str(tkfont.nametofont("TkFixedFont", self).actual("family")),
         )
-        self.title("密碼工具 GUI")
         self.geometry("1400x900")
         self.minsize(1100, 720)
         self.runtime_migration_error = ""
@@ -436,6 +436,8 @@ class PasswordToolGUI(tk.Tk):
         except RuntimeError as exc:
             self.runtime_migration_error = str(exc)
         self.config_data, self.config_load_error, self.config_load_source = load_config()
+        self.config_data.language = normalize_language(self.config_data.language)
+        self.title(translate("密碼工具 GUI", self.config_data.language))
         self.log_queue: queue.Queue[str] = queue.Queue(maxsize=UI_QUEUE_LIMIT)
         self.status_queue: queue.Queue[str] = queue.Queue(maxsize=UI_QUEUE_LIMIT)
         self.ui_queue: queue.Queue[object] = queue.Queue()
@@ -453,6 +455,7 @@ class PasswordToolGUI(tk.Tk):
         self.setting_vars: dict[str, tk.StringVar] = {}
         self._build_style()
         self._build_ui()
+        self._install_localization()
         if self.runtime_migration_error:
             self.after(0, self._show_runtime_migration_error)
         elif self.config_load_error:
@@ -563,6 +566,79 @@ class PasswordToolGUI(tk.Tk):
             foreground=[("disabled", DISABLED_TEXT), ("selected", ACCENT), ("active", TEXT)],
         )
         style.configure("Horizontal.TProgressbar", troughcolor=SURFACE_2, background=ACCENT, bordercolor=SURFACE_2, lightcolor=ACCENT, darkcolor=ACCENT)
+
+    def tr(self, text: str) -> str:
+        return translate(text, self.config_data.language)
+
+    def _install_localization(self) -> None:
+        self._i18n_vars: dict[str, tuple[tk.StringVar, str]] = {}
+        self._i18n_busy = False
+        self._i18n_tabs = [self.notebook.tab(index, "text") for index in range(self.notebook.index("end"))]
+        self._apply_language()
+
+    def _apply_language(self) -> None:
+        language = self.config_data.language
+        self.title(translate("密碼工具 GUI", language))
+
+        def visit(widget: tk.Misc) -> None:
+            try:
+                current = str(widget.cget("text"))
+            except tk.TclError:
+                current = ""
+            if current:
+                source = getattr(widget, "_i18n_source", current)
+                if current not in {source, translate(source, "en")}:
+                    source = current
+                widget._i18n_source = source
+                try:
+                    widget.configure(text=translate(source, language))
+                except tk.TclError:
+                    pass
+            if isinstance(widget, ttk.Label):
+                variable_name = str(widget.cget("textvariable"))
+                if variable_name and variable_name not in self._i18n_vars:
+                    variable = tk.StringVar(self, name=variable_name)
+                    self._i18n_vars[variable_name] = (variable, variable.get())
+                    variable.trace_add("write", lambda *_args, name=variable_name: self._translate_variable(name))
+            if isinstance(widget, ttk.Combobox):
+                values = list(widget.cget("values"))
+                sources = getattr(widget, "_i18n_values", values)
+                widget._i18n_values = sources
+                selected = widget.get()
+                selected_source = source_text(selected, sources)
+                widget.configure(values=[translate(item, language) for item in sources])
+                if selected_source:
+                    widget.set(translate(selected_source, language))
+            for child in widget.winfo_children():
+                visit(child)
+
+        visit(self)
+        for index, source in enumerate(self._i18n_tabs):
+            self.notebook.tab(index, text=translate(source, language))
+        self._translate_all_variables()
+
+    def _translate_variable(self, name: str) -> None:
+        if self._i18n_busy:
+            return
+        variable, old_source = self._i18n_vars[name]
+        current = variable.get()
+        source = old_source if current == translate(old_source, "en") else current
+        self._i18n_vars[name] = (variable, source)
+        translated = translate(source, self.config_data.language)
+        if translated != current:
+            self._i18n_busy = True
+            variable.set(translated)
+            self._i18n_busy = False
+
+    def _translate_all_variables(self) -> None:
+        for name in tuple(self._i18n_vars):
+            self._translate_variable(name)
+
+    def change_language(self, _event: object = None) -> None:
+        selected = self.language_var.get()
+        self.config_data.language = next((code for code, label in LANGUAGES.items() if label == selected), "zh-TW")
+        self._apply_language()
+        self._save_config(explicit=True)
 
     def _build_ui(self) -> None:
         root = ttk.Frame(self, padding=16, style="Shell.TFrame")
@@ -782,7 +858,7 @@ class PasswordToolGUI(tk.Tk):
             self.strategy_card.grid(row=2, column=0, sticky="nsew", pady=(0, 10))
 
     def _set_candidate_source(self) -> None:
-        source = self.candidate_source.get()
+        source = source_text(self.candidate_source.get(), CANDIDATE_SOURCE_STRATEGIES)
         for frame in self.candidate_source_frames.values():
             frame.grid_remove()
         self.candidate_source_frames[source].grid(row=0, column=0, sticky="ew")
@@ -792,7 +868,8 @@ class PasswordToolGUI(tk.Tk):
         self._refresh_task_summary()
 
     def selected_attack_strategy(self) -> AttackStrategy:
-        return CANDIDATE_SOURCE_STRATEGIES[self.candidate_source.get()]
+        source = source_text(self.candidate_source.get(), CANDIDATE_SOURCE_STRATEGIES)
+        return CANDIDATE_SOURCE_STRATEGIES[source]
 
     def _refresh_task_summary(self, update_status: bool = True) -> None:
         if "quick_start_button" not in self.__dict__:
@@ -817,7 +894,7 @@ class PasswordToolGUI(tk.Tk):
         self.strategy_summary.set(f"引擎：自動｜階段：{stages}｜候選數：執行前計算")
 
         reason = ""
-        source = self.candidate_source.get()
+        source = source_text(self.candidate_source.get(), CANDIDATE_SOURCE_STRATEGIES)
         if not path.is_file():
             reason = "請先選擇有效的目標檔案。"
         elif spec is None:
@@ -1231,8 +1308,13 @@ class PasswordToolGUI(tk.Tk):
             self.setting_vars[key] = var
             browse = "dir" if key in {"john_run_dir", "output_dir"} else "file"
             self._row(frame, idx, label, var, browse)
+        ttk.Label(frame, text="語言").grid(row=len(rows) + 1, column=0, sticky="w", padx=(0, 8), pady=4)
+        self.language_var = tk.StringVar(value=LANGUAGES[self.config_data.language])
+        language_combo = ttk.Combobox(frame, textvariable=self.language_var, values=list(LANGUAGES.values()), state="readonly")
+        language_combo.grid(row=len(rows) + 1, column=1, sticky="ew", pady=4)
+        language_combo.bind("<<ComboboxSelected>>", self.change_language)
         buttons = ttk.Frame(frame)
-        buttons.grid(row=len(rows) + 1, column=1, sticky="ew", pady=(12, 8))
+        buttons.grid(row=len(rows) + 2, column=1, sticky="ew", pady=(12, 8))
         for idx, (label, command) in enumerate([
             ("儲存設定", self.save_settings), ("自動偵測", self.detect_settings),
             ("健康檢查", self.health_check), ("開啟輸出資料夾", self.open_output_folder),
@@ -1241,9 +1323,9 @@ class PasswordToolGUI(tk.Tk):
             row, column = divmod(idx, 2)
             buttons.columnconfigure(column, weight=1)
             ttk.Button(buttons, text=label, command=command, style="Accent.TButton" if idx == 0 else "TButton").grid(row=row, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0), pady=(0 if row == 0 else 8, 0))
-        ttk.Label(frame, text=f"目前設定檔：{CONFIG_PATH}", style="Technical.TLabel").grid(row=len(rows) + 2, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        ttk.Label(frame, text=f"目前設定檔：{CONFIG_PATH}", style="Technical.TLabel").grid(row=len(rows) + 3, column=0, columnspan=3, sticky="w", pady=(8, 0))
         tip = "Perl 未安裝時，7z2john.pl、pdf2john.pl 等 .pl 轉換器會無法使用；安裝後在此指定路徑即可。"
-        ttk.Label(frame, text=tip, style="Status.TLabel").grid(row=len(rows) + 3, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        ttk.Label(frame, text=tip, style="Status.TLabel").grid(row=len(rows) + 4, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
     def _build_help_tab(self) -> None:
         frame = self.help_tab
