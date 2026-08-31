@@ -240,6 +240,7 @@ class UiModeTests(unittest.TestCase):
             self.assertEqual(style.lookup("TEntry", "bordercolor", ("focus",)), APP.ACCENT)
             self.assertEqual(style.lookup("TNotebook.Tab", "foreground", ("selected",)), APP.ACCENT)
             self.assertEqual(style.lookup("Success.Pill.TLabel", "foreground"), APP.SUCCESS)
+            self.assertEqual(tuple(map(int, gui.tk.splitlist(style.lookup("Info.Soft.TLabel", "padding")))), (8, 4))
             self.assertEqual(style.lookup("Technical.TLabel", "foreground"), APP.MUTED)
             self.assertEqual(gui.output.cget("background"), APP.TEXT)
             self.assertEqual(gui.output.cget("foreground"), APP.BG)
