@@ -237,6 +237,18 @@ class UiModeTests(unittest.TestCase):
             self.assertEqual(style.lookup("TEntry", "bordercolor", ("focus",)), APP.ACCENT)
             self.assertEqual(style.lookup("TNotebook.Tab", "foreground", ("selected",)), APP.ACCENT)
             self.assertEqual(style.lookup("Success.Pill.TLabel", "foreground"), APP.SUCCESS)
+            self.assertEqual(style.lookup("Technical.TLabel", "foreground"), APP.MUTED)
+            self.assertEqual(gui.output.cget("background"), APP.TEXT)
+            self.assertEqual(gui.output.cget("foreground"), APP.BG)
+            self.assertEqual(gui.cracked_text.cget("background"), APP.TEXT)
+            self.assertEqual(gui.help_text.cget("background"), APP.SURFACE_2)
+            self.assertEqual(gui.help_text.cget("state"), "disabled")
+            self.assertTrue(all(
+                entry.cget("style") == "Technical.TEntry"
+                for tab in (gui.extract_tab, gui.hashcat_tab, gui.john_tab, gui.settings_tab)
+                for entry in tab.winfo_children()
+                if isinstance(entry, APP.ttk.Entry) and not isinstance(entry, APP.ttk.Combobox)
+            ))
 
             for geometry in ("1100x720", "1366x768"):
                 gui.geometry(geometry)

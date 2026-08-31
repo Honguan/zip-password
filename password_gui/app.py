@@ -413,6 +413,7 @@ class PasswordToolGUI(tk.Tk):
         style.configure("MetricValue.TLabel", background=SURFACE, foreground=TEXT, font=(self.mono_font, 14, "bold"))
         style.configure("MetricName.TLabel", background=SURFACE, foreground=MUTED, font=(self.ui_font, 10))
         style.configure("Status.TLabel", anchor="w", background=BG, foreground=MUTED)
+        style.configure("Technical.TLabel", background=BG, foreground=MUTED, font=(self.mono_font, 10))
         style.configure("Pill.TLabel", background=INFO_BG, foreground=INFO, padding=(10, 4), font=(self.ui_font, 10, "bold"))
         style.configure("Info.Pill.TLabel", background=INFO_BG, foreground=INFO)
         style.configure("Success.Pill.TLabel", background=SUCCESS_BG, foreground=SUCCESS)
@@ -446,6 +447,7 @@ class PasswordToolGUI(tk.Tk):
             bordercolor=[("focus", TEXT)],
         )
         style.configure("TEntry", fieldbackground=SURFACE, foreground=TEXT, bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER, padding=6)
+        style.configure("Technical.TEntry", font=(self.mono_font, 10))
         style.map(
             "TEntry",
             fieldbackground=[("disabled", SURFACE_2), ("readonly", SURFACE_2)],
@@ -453,6 +455,7 @@ class PasswordToolGUI(tk.Tk):
             bordercolor=[("focus", ACCENT), ("invalid", DANGER)],
         )
         style.configure("TCombobox", fieldbackground=SURFACE, foreground=TEXT, bordercolor=BORDER, padding=5)
+        style.configure("Technical.TCombobox", font=(self.mono_font, 10))
         style.map(
             "TCombobox",
             fieldbackground=[("disabled", SURFACE_2), ("readonly", SURFACE)],
@@ -749,7 +752,7 @@ class PasswordToolGUI(tk.Tk):
 
     def _row(self, parent: ttk.Frame, row: int, label: str, var: tk.StringVar, browse: str | None = None) -> ttk.Entry:
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(0, 8), pady=4)
-        entry = ttk.Entry(parent, textvariable=var)
+        entry = ttk.Entry(parent, textvariable=var, style="Technical.TEntry")
         entry.grid(row=row, column=1, sticky="ew", pady=4)
         if browse:
             command = (lambda: self._browse_file(var)) if browse == "file" else (lambda: self._browse_dir(var))
@@ -793,7 +796,7 @@ class PasswordToolGUI(tk.Tk):
         ttk.Button(frame, text="另存", command=lambda: self._browse_save(self.extract_output, ".hash")).grid(row=2, column=2, padx=(8, 0))
 
         ttk.Label(frame, text="轉換器").grid(row=3, column=0, sticky="w", padx=(0, 8), pady=4)
-        self.converter_combo = ttk.Combobox(frame, textvariable=self.extract_converter, values=["自動偵測"], state="readonly")
+        self.converter_combo = ttk.Combobox(frame, textvariable=self.extract_converter, values=["自動偵測"], state="readonly", style="Technical.TCombobox")
         self.converter_combo.grid(row=3, column=1, sticky="ew", pady=4)
         ttk.Button(frame, text="刷新", command=self.refresh_converters).grid(row=3, column=2, padx=(8, 0), pady=4)
 
@@ -811,7 +814,7 @@ class PasswordToolGUI(tk.Tk):
 
         buttons = ttk.Frame(frame)
         buttons.grid(row=6, column=0, columnspan=3, sticky="w", pady=(10, 8))
-        ttk.Button(buttons, text="開始轉換", command=self.start_extract).pack(side="left", padx=(0, 8))
+        ttk.Button(buttons, text="開始轉換", command=self.start_extract, style="Accent.TButton").pack(side="left", padx=(0, 8))
         ttk.Button(buttons, text="建議輸出", command=self.suggest_extract_output).pack(side="left", padx=(0, 8))
         ttk.Button(buttons, text="開啟輸出資料夾", command=self.open_output_folder).pack(side="left", padx=(0, 8))
         ttk.Button(buttons, text="填入兩套工具", command=self.fill_hash_targets).pack(side="left")
@@ -820,7 +823,7 @@ class PasswordToolGUI(tk.Tk):
             "支援 ZIP/RAR/7Z、Office、PDF、DMG、GPG、KeePass、BitLocker 等 John 轉換器。\n"
             "缺少 hashcat / John 會自動下載；.pl 轉換器仍需要手動安裝 Perl。"
         )
-        ttk.Label(frame, text=info, foreground="#555555").grid(row=7, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        ttk.Label(frame, text=info, style="Status.TLabel").grid(row=7, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
     def _build_hashcat_tab(self) -> None:
         self.hashcat_hash_file = tk.StringVar()
@@ -845,7 +848,7 @@ class PasswordToolGUI(tk.Tk):
         ttk.Label(frame, text="Hashcat 設定", style="Header.TLabel").grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 10))
         self._row(frame, 1, "雜湊檔", self.hashcat_hash_file, "file")
         ttk.Label(frame, text="雜湊模式").grid(row=2, column=0, sticky="w", padx=(0, 8), pady=4)
-        ttk.Combobox(frame, textvariable=self.hashcat_mode, values=HASHCAT_MODES).grid(row=2, column=1, sticky="ew", pady=4)
+        ttk.Combobox(frame, textvariable=self.hashcat_mode, values=HASHCAT_MODES, style="Technical.TCombobox").grid(row=2, column=1, sticky="ew", pady=4)
         ttk.Label(frame, text="攻擊模式").grid(row=3, column=0, sticky="w", padx=(0, 8), pady=4)
         ttk.Combobox(frame, textvariable=self.hashcat_attack, values=HASHCAT_ATTACKS, state="readonly").grid(row=3, column=1, sticky="ew", pady=4)
         self._row(frame, 4, "字典檔", self.hashcat_wordlist, "file")
@@ -856,7 +859,7 @@ class PasswordToolGUI(tk.Tk):
         rule_box = ttk.Frame(frame)
         rule_box.grid(row=7, column=1, sticky="ew", pady=4)
         rule_box.columnconfigure(0, weight=1)
-        self.rule_combo = ttk.Combobox(rule_box, textvariable=self.hashcat_rule, values=self._rule_files())
+        self.rule_combo = ttk.Combobox(rule_box, textvariable=self.hashcat_rule, values=self._rule_files(), style="Technical.TCombobox")
         self.rule_combo.grid(row=0, column=0, sticky="ew")
         ttk.Button(rule_box, text="瀏覽", command=lambda: self._browse_file(self.hashcat_rule)).grid(row=0, column=1, padx=(8, 0))
 
@@ -869,19 +872,19 @@ class PasswordToolGUI(tk.Tk):
         ttk.Checkbutton(options, text="--remove", variable=self.hashcat_remove).grid(row=0, column=1, sticky="w", padx=(0, 10))
         ttk.Checkbutton(options, text="-O 最佳化", variable=self.hashcat_optimized).grid(row=0, column=2, sticky="w")
         ttk.Label(options, text="工作量 -w").grid(row=1, column=0, sticky="w", pady=(8, 0))
-        ttk.Entry(options, textvariable=self.hashcat_workload, width=6).grid(row=2, column=0, sticky="w")
+        ttk.Entry(options, textvariable=self.hashcat_workload, width=6, style="Technical.TEntry").grid(row=2, column=0, sticky="w")
         ttk.Label(options, text="裝置 -d").grid(row=1, column=1, sticky="w", pady=(8, 0))
-        ttk.Entry(options, textvariable=self.hashcat_device, width=12).grid(row=2, column=1, sticky="w")
+        ttk.Entry(options, textvariable=self.hashcat_device, width=12, style="Technical.TEntry").grid(row=2, column=1, sticky="w")
         ttk.Label(options, text="狀態秒數").grid(row=1, column=2, sticky="w", pady=(8, 0))
-        ttk.Entry(options, textvariable=self.hashcat_status_timer, width=8).grid(row=2, column=2, sticky="w")
+        ttk.Entry(options, textvariable=self.hashcat_status_timer, width=8, style="Technical.TEntry").grid(row=2, column=2, sticky="w")
 
         session_row = ttk.Frame(frame)
         session_row.grid(row=10, column=1, sticky="ew", pady=4)
         ttk.Label(frame, text="Session").grid(row=10, column=0, sticky="w", padx=(0, 8), pady=4)
         session_row.columnconfigure(0, weight=1)
-        ttk.Entry(session_row, textvariable=self.hashcat_session).grid(row=0, column=0, sticky="ew")
+        ttk.Entry(session_row, textvariable=self.hashcat_session, style="Technical.TEntry").grid(row=0, column=0, sticky="ew")
         ttk.Label(frame, text="進階參數").grid(row=11, column=0, sticky="w", padx=(0, 8), pady=4)
-        ttk.Entry(frame, textvariable=self.hashcat_extra).grid(row=11, column=1, sticky="ew", pady=4)
+        ttk.Entry(frame, textvariable=self.hashcat_extra, style="Technical.TEntry").grid(row=11, column=1, sticky="ew", pady=4)
 
         buttons = ttk.Frame(frame)
         buttons.grid(row=12, column=1, columnspan=3, sticky="ew", pady=(10, 8))
@@ -892,7 +895,7 @@ class PasswordToolGUI(tk.Tk):
         ]):
             row, column = divmod(idx, 3)
             buttons.columnconfigure(column, weight=1)
-            ttk.Button(buttons, text=label, command=command).grid(row=row, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0), pady=(0 if row == 0 else 8, 0))
+            ttk.Button(buttons, text=label, command=command, style="Accent.TButton" if idx == 0 else "TButton").grid(row=row, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0), pady=(0 if row == 0 else 8, 0))
 
         controls = ttk.Frame(frame)
         controls.grid(row=13, column=1, sticky="ew", pady=4)
@@ -902,7 +905,7 @@ class PasswordToolGUI(tk.Tk):
             ttk.Button(controls, text=label, command=lambda value=key: self.runner.send_key(value)).grid(row=row, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0), pady=(0 if row == 0 else 8, 0))
 
         note = "進階參數會原樣加入命令，可使用 hashcat 全部選項；GUI 不顯示任何命令視窗。"
-        ttk.Label(frame, text=note, foreground="#555555").grid(row=14, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        ttk.Label(frame, text=note, style="Status.TLabel").grid(row=14, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
     def _build_john_tab(self) -> None:
         self.john_hash_file = tk.StringVar()
@@ -920,7 +923,7 @@ class PasswordToolGUI(tk.Tk):
         ttk.Label(frame, text="John the Ripper 設定", style="Header.TLabel").grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 10))
         self._row(frame, 1, "雜湊檔", self.john_hash_file, "file")
         ttk.Label(frame, text="格式 --format").grid(row=2, column=0, sticky="w", padx=(0, 8), pady=4)
-        self.john_format_combo = ttk.Combobox(frame, textvariable=self.john_format, values=[])
+        self.john_format_combo = ttk.Combobox(frame, textvariable=self.john_format, values=[], style="Technical.TCombobox")
         self.john_format_combo.grid(row=2, column=1, sticky="ew", pady=4)
         ttk.Button(frame, text="載入格式", command=self.load_john_formats).grid(row=2, column=2, padx=(8, 0))
 
@@ -935,12 +938,12 @@ class PasswordToolGUI(tk.Tk):
         compact.columnconfigure(1, weight=1)
         ttk.Label(frame, text="Session / Fork").grid(row=7, column=0, sticky="w", padx=(0, 8), pady=4)
         ttk.Label(compact, text="Session").grid(row=0, column=0, sticky="w")
-        ttk.Entry(compact, textvariable=self.john_session).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+        ttk.Entry(compact, textvariable=self.john_session, style="Technical.TEntry").grid(row=0, column=1, sticky="ew", padx=(6, 0))
         ttk.Label(compact, text="--fork").grid(row=1, column=0, sticky="w", pady=(4, 0))
-        ttk.Entry(compact, textvariable=self.john_fork, width=8).grid(row=1, column=1, sticky="w", padx=(6, 0), pady=(4, 0))
+        ttk.Entry(compact, textvariable=self.john_fork, width=8, style="Technical.TEntry").grid(row=1, column=1, sticky="w", padx=(6, 0), pady=(4, 0))
 
         ttk.Label(frame, text="進階參數").grid(row=8, column=0, sticky="w", padx=(0, 8), pady=4)
-        ttk.Entry(frame, textvariable=self.john_extra).grid(row=8, column=1, sticky="ew", pady=4)
+        ttk.Entry(frame, textvariable=self.john_extra, style="Technical.TEntry").grid(row=8, column=1, sticky="ew", pady=4)
 
         buttons = ttk.Frame(frame)
         buttons.grid(row=9, column=1, columnspan=3, sticky="ew", pady=(10, 8))
@@ -952,10 +955,10 @@ class PasswordToolGUI(tk.Tk):
         ]):
             row, column = divmod(idx, 3)
             buttons.columnconfigure(column, weight=1)
-            ttk.Button(buttons, text=label, command=command).grid(row=row, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0), pady=(0 if row == 0 else 8, 0))
+            ttk.Button(buttons, text=label, command=command, style="Accent.TButton" if idx == 0 else "TButton").grid(row=row, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0), pady=(0 if row == 0 else 8, 0))
 
         note = "John 也可直接在進階參數使用所有官方選項，例如 --incremental、--external、--subsets。"
-        ttk.Label(frame, text=note, foreground="#555555").grid(row=10, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        ttk.Label(frame, text=note, style="Status.TLabel").grid(row=10, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
     def _build_output_tab(self) -> None:
         frame = self.output_tab
@@ -1044,9 +1047,11 @@ class PasswordToolGUI(tk.Tk):
             width=1,
             height=4,
             font=(self.mono_font, 11),
-            background="#F8FAFC",
-            foreground=TEXT,
-            insertbackground=TEXT,
+            background=TEXT,
+            foreground=BG,
+            insertbackground=BG,
+            selectbackground=ACCENT,
+            selectforeground=SURFACE,
             relief="flat",
             borderwidth=0,
             padx=12,
@@ -1067,11 +1072,13 @@ class PasswordToolGUI(tk.Tk):
             width=1,
             height=7,
             font=(self.mono_font, 10),
-            background="#FFFFFF",
-            foreground=TEXT,
-            insertbackground=TEXT,
-            relief="solid",
-            borderwidth=1,
+            background=TEXT,
+            foreground=BG,
+            insertbackground=BG,
+            selectbackground=ACCENT,
+            selectforeground=SURFACE,
+            relief="flat",
+            borderwidth=0,
             padx=12,
             pady=10,
         )
@@ -1144,18 +1151,30 @@ class PasswordToolGUI(tk.Tk):
         ]):
             row, column = divmod(idx, 2)
             buttons.columnconfigure(column, weight=1)
-            ttk.Button(buttons, text=label, command=command).grid(row=row, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0), pady=(0 if row == 0 else 8, 0))
-        ttk.Label(frame, text=f"目前設定檔：{CONFIG_PATH}", foreground="#555555").grid(row=len(rows) + 2, column=0, columnspan=3, sticky="w", pady=(8, 0))
+            ttk.Button(buttons, text=label, command=command, style="Accent.TButton" if idx == 0 else "TButton").grid(row=row, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0), pady=(0 if row == 0 else 8, 0))
+        ttk.Label(frame, text=f"目前設定檔：{CONFIG_PATH}", style="Technical.TLabel").grid(row=len(rows) + 2, column=0, columnspan=3, sticky="w", pady=(8, 0))
         tip = "Perl 未安裝時，7z2john.pl、pdf2john.pl 等 .pl 轉換器會無法使用；安裝後在此指定路徑即可。"
-        ttk.Label(frame, text=tip, foreground="#555555").grid(row=len(rows) + 3, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        ttk.Label(frame, text=tip, style="Status.TLabel").grid(row=len(rows) + 3, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
     def _build_help_tab(self) -> None:
         frame = self.help_tab
         frame.rowconfigure(0, weight=1)
         frame.columnconfigure(0, weight=1)
-        text = scrolledtext.ScrolledText(frame, wrap="word", font=(self.ui_font, 11))
-        text.grid(row=0, column=0, sticky="nsew")
-        text.insert(
+        self.help_text = scrolledtext.ScrolledText(
+            frame,
+            wrap="word",
+            font=(self.ui_font, 11),
+            background=SURFACE_2,
+            foreground=TEXT,
+            selectbackground=ACCENT,
+            selectforeground=SURFACE,
+            relief="flat",
+            borderwidth=0,
+            padx=12,
+            pady=10,
+        )
+        self.help_text.grid(row=0, column=0, sticky="nsew")
+        self.help_text.insert(
             "1.0",
             (
                 "使用流程\n"
@@ -1171,7 +1190,7 @@ class PasswordToolGUI(tk.Tk):
                 "7z2john.pl、pdf2john.pl 需要 Perl。若系統尚未安裝，請在設定頁指定 perl.exe 後使用。"
             ),
         )
-        text.configure(state="disabled")
+        self.help_text.configure(state="disabled")
 
     def _rule_files(self) -> list[str]:
         hashcat_path = self.config_data.hashcat_path
