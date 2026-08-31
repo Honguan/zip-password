@@ -151,6 +151,9 @@ class UiModeTests(unittest.TestCase):
                 gui.update()
                 self.assertIn("sample.zip｜ZIP", gui.target_summary.get())
                 self.assertTrue(gui.quick_start_button.instate(["!disabled"]))
+                self.assertEqual(gui.quick_status_label.cget("style"), "Success.Soft.TLabel")
+                self.assertEqual(gui.task_cards.cget("style"), "PanelBody.TFrame")
+                self.assertTrue(all(card.cget("style") == "Step.TFrame" for card in (gui.target_card, gui.candidate_card, gui.strategy_card)))
                 self.assertFalse(any(isinstance(widget, APP.ttk.Combobox) for widget in gui.strategy_card.winfo_children()))
 
                 gui.quick_wordlist.set("")
@@ -159,6 +162,7 @@ class UiModeTests(unittest.TestCase):
                 self.assertEqual(gui.selected_attack_strategy(), APP.AttackStrategy.DICTIONARY)
                 self.assertTrue(gui.quick_start_button.instate(["disabled"]))
                 self.assertIn("字典", gui.quick_status.get())
+                self.assertEqual(gui.quick_status_label.cget("style"), "Warning.Soft.TLabel")
 
                 wordlist = Path(temp) / "words.txt"
                 wordlist.write_text("secret\n", encoding="utf-8")
@@ -200,15 +204,18 @@ class UiModeTests(unittest.TestCase):
             gui.update()
             self.assertEqual(gui.output_job_var.get(), "1 / 1  提示詞組合")
             self.assertTrue(gui.stop_button.winfo_ismapped())
+            self.assertEqual(gui.status_pill.cget("style"), "Info.Pill.TLabel")
 
-            for state, title in (
-                (APP.JobState.SUCCEEDED, "已找到密碼"),
-                (APP.JobState.EXHAUSTED, "未找到密碼"),
-                (APP.JobState.FAILED, "工作失敗"),
+            for state, title, pill_style in (
+                (APP.JobState.SUCCEEDED, "已找到密碼", "Success.Pill.TLabel"),
+                (APP.JobState.EXHAUSTED, "未找到密碼", "Warning.Pill.TLabel"),
+                (APP.JobState.FAILED, "工作失敗", "Danger.Pill.TLabel"),
+                (APP.JobState.CANCELLED, "工作已取消", "Neutral.Pill.TLabel"),
             ):
                 gui.render_job(APP.JobSnapshot(state=state, error="可讀錯誤"))
                 gui.update()
                 self.assertEqual(gui.result_title_var.get(), title)
+                self.assertEqual(gui.status_pill.cget("style"), pill_style)
                 self.assertTrue(gui.output_tab.winfo_ismapped())
                 self.assertFalse(gui.launcher.winfo_ismapped())
         finally:
