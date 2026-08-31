@@ -236,6 +236,20 @@ class AutoStagesTests(TestCase):
             self.assertIn("--outfile-format", command)
             self.assertIn("2", command)
 
+    def test_hashcat_hex_plaintext_normalizes_existing_outfile(self):
+        with TemporaryDirectory() as temp:
+            cracked = Path(temp) / "cracked.txt"
+            cracked.write_text("$HEX[e9]\n", encoding="utf-8")
+            gui = self.make_finalize_gui()
+            gui.runner.capture.return_value = Mock(
+                returncode=0, stdout=b"$HEX[e9]\n", stderr=b""
+            )
+
+            gui.finalize_auto_cracked("hashcat", Path("hash.txt"), "0 - MD5", cracked, Mock())
+            self.complete_capture(gui)
+
+            self.assertEqual(cracked.read_text(encoding="utf-8"), "é\n")
+
     def test_hashcat_show_does_not_merge_truncated_password(self):
         with TemporaryDirectory() as temp:
             cracked = Path(temp) / "cracked.txt"

@@ -203,7 +203,20 @@ def detect_hashcat_mode(hash_text: str) -> HashModeDetection:
 
 def extract_passwords_from_show(text: str, engine: str, plaintext_only: bool = False) -> list[str]:
     if plaintext_only:
-        return [line for line in text.splitlines() if line]
+        passwords = []
+        for line in text.splitlines():
+            if not line:
+                continue
+            match = re.fullmatch(r"\$HEX\[([0-9a-fA-F]+)\]", line)
+            if not match or len(match.group(1)) % 2:
+                passwords.append(line)
+                continue
+            raw = bytes.fromhex(match.group(1))
+            try:
+                passwords.append(raw.decode("utf-8"))
+            except UnicodeDecodeError:
+                passwords.append(raw.decode("cp1252", errors="replace"))
+        return passwords
 
     passwords: list[str] = []
     for line in text.splitlines():
@@ -224,6 +237,7 @@ def extract_passwords_from_show(text: str, engine: str, plaintext_only: bool = F
 def build_auto_hashcat_command(
     executable: str, hash_file: Path, mode: str, wordlist: str, cracked: Path, mask_file: Path,
     source: Path, configured_mask: str, session_suffix: str = "",
+    custom_charset: Path | None = None,
 ) -> list[str]:
     identity = source_identity(source)
     session_base = f"auto_{identity}_{session_suffix}" if session_suffix else f"auto_{identity}"
@@ -235,12 +249,13 @@ def build_auto_hashcat_command(
     if wordlist:
         return command + ["-a", "0", str(hash_file), wordlist]
     mask = configured_mask if configured_mask and configured_mask != HASHCAT_DEFAULT_MASK else str(mask_file)
-    return command + ["-a", "3", str(hash_file), mask]
+    charset = ["-1", str(custom_charset)] if custom_charset else []
+    return command + ["-a", "3", *charset, str(hash_file), mask]
 
 
 def build_auto_john_command(
     executable: str, hash_file: Path, wordlist: str, source: Path, configured_mask: str,
-    session_suffix: str = "",
+    session_suffix: str = "", custom_charset: str = "", mask_length: int | None = None,
 ) -> list[str]:
     identity = source_identity(source)
     session_base = f"auto_{identity}_{session_suffix}" if session_suffix else f"auto_{identity}"
@@ -248,6 +263,11 @@ def build_auto_john_command(
     command = [executable, f"--session={session}"]
     if wordlist:
         command.append(f"--wordlist={wordlist}")
+    elif custom_charset and mask_length:
+        command += [
+            f"-1={custom_charset}", "--encoding=cp1252", "--mask=?1",
+            f"--min-length={mask_length}", f"--max-length={mask_length}",
+        ]
     elif configured_mask and configured_mask != JOHN_DEFAULT_MASK:
         command.append(f"--mask={configured_mask}")
     else:

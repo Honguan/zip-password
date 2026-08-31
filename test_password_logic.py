@@ -51,6 +51,18 @@ class PasswordLogicTests(TestCase):
             ],
         )
 
+    def test_auto_john_command_uses_selected_charset_and_exact_length(self):
+        command = logic.build_auto_john_command(
+            "john.exe", Path("hash.txt"), "", Path("sample.zip"), logic.JOHN_DEFAULT_MASK,
+            "mask-6", "?d?l?u", 6,
+        )
+
+        self.assertIn("-1=?d?l?u", command)
+        self.assertIn("--encoding=cp1252", command)
+        self.assertIn("--mask=?1", command)
+        self.assertIn("--min-length=6", command)
+        self.assertIn("--max-length=6", command)
+
     def test_hash_output_and_mode_parsing_need_no_gui(self):
         text = "archive.rar:$rar5$16$11111111111111111111111111111111$15$22222222222222222222222222222222$8$3333333333333333:archive.rar\n"
 
@@ -159,11 +171,11 @@ class PasswordLogicTests(TestCase):
         )
 
     def test_hashcat_plaintext_only_output_preserves_passwords(self):
-        shown = "abc:def\none::two\n 密碼 值 \n"
+        shown = "abc:def\none::two\n 密碼 值 \n$HEX[e9]\n$HEX[e5af86e7a2bc]\n"
 
         self.assertEqual(
             logic.extract_passwords_from_show(shown, "hashcat", plaintext_only=True),
-            ["abc:def", "one::two", " 密碼 值 "],
+            ["abc:def", "one::two", " 密碼 值 ", "é", "密碼"],
         )
 
     def test_hashcat_zip_output_discards_john_metadata_only(self):

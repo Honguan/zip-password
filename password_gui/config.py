@@ -41,6 +41,13 @@ class AppConfig:
     attack_strategy: AttackStrategy = AttackStrategy.AUTO
     combo_wordlist: Path | None = None
     combo_key: str = ""
+    brute_force_categories: tuple[str, ...] = ("digits", "english", "text", "symbols")
+    brute_force_min_length: int = 4
+    brute_force_max_length: int = 8
+    brute_force_benchmark_speed: float = 0.0
+    brute_force_benchmark_mode: str = ""
+    brute_force_benchmark_device: str = ""
+    brute_force_benchmark_hashcat: str = ""
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, object], defaults: AppConfig) -> AppConfig:
@@ -68,6 +75,28 @@ class AppConfig:
                 config.combo_key = value
             elif key == "language":
                 config.language = value if value in {"en", "zh-TW"} else defaults.language
+            elif key == "brute_force_categories":
+                allowed = {"digits", "english", "text", "symbols"}
+                if not isinstance(value, (list, tuple)) or not value or not all(
+                    isinstance(item, str) and item in allowed for item in value
+                ):
+                    raise ValueError("設定 brute_force_categories 必須包含有效字元類別")
+                config.brute_force_categories = tuple(dict.fromkeys(value))
+            elif key in {"brute_force_min_length", "brute_force_max_length"}:
+                if not isinstance(value, int) or isinstance(value, bool):
+                    raise ValueError(f"設定 {key} 必須是整數")
+                setattr(config, key, value)
+            elif key == "brute_force_benchmark_speed":
+                if not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0:
+                    raise ValueError("設定 brute_force_benchmark_speed 必須是非負數")
+                config.brute_force_benchmark_speed = float(value)
+            elif key in {
+                "brute_force_benchmark_mode", "brute_force_benchmark_device",
+                "brute_force_benchmark_hashcat",
+            }:
+                if not isinstance(value, str):
+                    raise ValueError(f"設定 {key} 必須是字串")
+                setattr(config, key, value)
         if "attack_strategy" not in data and "auto_follow_order" in data:
             legacy = data["auto_follow_order"]
             if not isinstance(legacy, bool) and not (isinstance(legacy, str) and legacy in {"1", "0"}):

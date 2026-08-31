@@ -103,6 +103,16 @@ from password_gui.job import (
 )
 from password_gui.workflow import attack_steps
 from password_gui.i18n import LANGUAGES, normalize_language, source_text, translate
+from password_gui.bruteforce import (
+    CATEGORY_LABELS,
+    ENCODING_LABEL,
+    build_charset,
+    candidate_count,
+    estimate_seconds,
+    format_duration,
+    john_charset_expression,
+    parse_hashcat_benchmark,
+)
 
 
 APP_DIR = (
@@ -803,7 +813,35 @@ class PasswordToolGUI(tk.Tk):
         self.candidate_source_frames["提示詞組合"] = hints_frame
 
         brute_frame = ttk.Frame(self.candidate_fields, style="CardBody.TFrame")
-        ttk.Label(brute_frame, text="使用自動遮罩進行純暴力分析。", style="Muted.TLabel").grid(sticky="w")
+        self.brute_category_vars = {
+            key: tk.BooleanVar(value=key in self.config_data.brute_force_categories)
+            for key in CATEGORY_LABELS
+        }
+        for column, (key, label) in enumerate(CATEGORY_LABELS.items()):
+            ttk.Checkbutton(
+                brute_frame, text=label, variable=self.brute_category_vars[key],
+                style="Card.TCheckbutton",
+            ).grid(row=0, column=column, sticky="w", padx=(0, 10))
+        ttk.Label(brute_frame, text="最小長度").grid(row=1, column=0, sticky="w", pady=(8, 0))
+        self.brute_min_length = tk.StringVar(value=str(self.config_data.brute_force_min_length))
+        ttk.Spinbox(brute_frame, from_=1, to=12, width=5, textvariable=self.brute_min_length).grid(
+            row=1, column=1, sticky="w", pady=(8, 0)
+        )
+        ttk.Label(brute_frame, text="最大長度").grid(row=1, column=2, sticky="w", pady=(8, 0))
+        self.brute_max_length = tk.StringVar(value=str(self.config_data.brute_force_max_length))
+        ttk.Spinbox(brute_frame, from_=1, to=12, width=5, textvariable=self.brute_max_length).grid(
+            row=1, column=3, sticky="w", pady=(8, 0)
+        )
+        self.brute_summary = tk.StringVar()
+        ttk.Label(brute_frame, textvariable=self.brute_summary, style="Muted.TLabel").grid(
+            row=2, column=0, columnspan=4, sticky="w", pady=(8, 0)
+        )
+        ttk.Button(brute_frame, text="重新測速", command=self.benchmark_brute_force).grid(
+            row=3, column=0, sticky="w", pady=(8, 0)
+        )
+        for variable in (*self.brute_category_vars.values(), self.brute_min_length, self.brute_max_length):
+            variable.trace_add("write", lambda *_: self._brute_force_changed())
+        self._refresh_brute_force_summary()
         self.candidate_source_frames["純暴力"] = brute_frame
 
         self.strategy_card = self._card(self.task_cards, 2, 0, pady=(0, 10))
@@ -871,9 +909,100 @@ class PasswordToolGUI(tk.Tk):
         source = source_text(self.candidate_source.get(), CANDIDATE_SOURCE_STRATEGIES)
         return CANDIDATE_SOURCE_STRATEGIES[source]
 
+    def selected_brute_force_categories(self) -> tuple[str, ...]:
+        return tuple(key for key in CATEGORY_LABELS if self.brute_category_vars[key].get())
+
+    def _brute_force_changed(self) -> None:
+        if "quick_start_button" in self.__dict__:
+            self._refresh_task_summary()
+        else:
+            self._refresh_brute_force_summary()
+
+    def _refresh_brute_force_summary(self) -> None:
+        categories = self.selected_brute_force_categories()
+        try:
+            minimum = int(self.brute_min_length.get())
+            maximum = int(self.brute_max_length.get())
+            total = candidate_count(len(build_charset(categories)), minimum, maximum)
+            labels = " + ".join(CATEGORY_LABELS[key] for key in categories)
+            warning = "｜警告：搜尋空間極大" if total >= 1_000_000_000_000 else ""
+            speed = self._current_brute_force_speed()
+            timing = estimate_seconds(total, speed)
+            if timing:
+                average, worst = timing
+                estimates = (
+                    f"預估速度：{speed:,.0f}/秒｜平均找到時間：{format_duration(average)}｜"
+                    f"最長可能時間：{format_duration(worst)}"
+                )
+            else:
+                estimates = "預估速度：需測速｜平均找到時間：需測速｜最長可能時間：需測速"
+            self.brute_summary.set(
+                f"字元範圍：{labels}｜編碼：{ENCODING_LABEL}｜候選總數：{total:,}｜"
+                f"{estimates}{warning}"
+            )
+        except ValueError as exc:
+            self.brute_summary.set(str(exc))
+
+    def _selected_hashcat_mode(self) -> str:
+        path = Path(self.quick_input.get().strip())
+        if not path.is_file():
+            return ""
+        try:
+            detection = detect_hashcat_mode(path.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            return ""
+        return first_number(detection.mode) if detection and detection.status == "detected" else ""
+
+    def _current_brute_force_speed(self) -> float | None:
+        mode = self._selected_hashcat_mode()
+        device = self.hashcat_device.get().strip() if hasattr(self, "hashcat_device") else ""
+        executable = str(self.config_data.hashcat_path or "")
+        if (
+            mode
+            and self.config_data.brute_force_benchmark_mode == mode
+            and self.config_data.brute_force_benchmark_device == device
+            and self.config_data.brute_force_benchmark_hashcat == executable
+        ):
+            return self.config_data.brute_force_benchmark_speed or None
+        return None
+
+    def benchmark_brute_force(self) -> None:
+        mode = self._selected_hashcat_mode()
+        executable = self.config_data.hashcat_path
+        if not executable or not executable.exists() or not mode:
+            self.quick_status.set("需先選擇可直接辨識 Hashcat 模式的雜湊檔才能測速。")
+            return
+        device = self.hashcat_device.get().strip() if hasattr(self, "hashcat_device") else ""
+        cmd = [str(executable), "-b", "-m", mode, "--machine-readable", "--quiet"]
+        if device:
+            cmd += ["-d", device]
+
+        def complete(proc: subprocess.CompletedProcess[bytes]) -> None:
+            try:
+                if proc.returncode:
+                    raise RuntimeError(f"Hashcat 測速結束代碼 {proc.returncode}")
+                speed = parse_hashcat_benchmark(decode_bytes(proc.stdout + proc.stderr), mode)
+                self.config_data.brute_force_benchmark_speed = speed
+                self.config_data.brute_force_benchmark_mode = mode
+                self.config_data.brute_force_benchmark_device = device
+                self.config_data.brute_force_benchmark_hashcat = str(executable)
+                self._save_config()
+                self._refresh_brute_force_summary()
+                self.quick_status.set(f"Hashcat 模式 {mode} 測速完成：{speed:,.0f}/秒")
+            except Exception as exc:
+                self.quick_status.set(f"測速失敗：{exc}")
+
+        self._start_capture_task(
+            lambda: self.runner.capture("Hashcat 測速", cmd, cwd=str(executable.parent), timeout=180),
+            complete,
+            lambda exc: self.quick_status.set(f"測速失敗：{exc}"),
+        )
+
     def _refresh_task_summary(self, update_status: bool = True) -> None:
         if "quick_start_button" not in self.__dict__:
             return
+        if hasattr(self, "brute_summary"):
+            self._refresh_brute_force_summary()
         path = Path(self.quick_input.get().strip())
         spec = format_for_extension(path.suffix) if path.suffix else None
         if path.is_file():
@@ -905,6 +1034,15 @@ class PasswordToolGUI(tk.Tk):
             self.quick_combo_key.get().strip() or has_text_candidate(Path(self.quick_combo_wordlist.get().strip()))
         ):
             reason = "請輸入提示詞或選擇提示詞檔案。"
+        elif source in {"自動", "純暴力"}:
+            try:
+                candidate_count(
+                    len(build_charset(self.selected_brute_force_categories())),
+                    int(self.brute_min_length.get()),
+                    int(self.brute_max_length.get()),
+                )
+            except (ValueError, TypeError):
+                reason = "請選擇字元類別並設定有效的長度範圍。"
         self.quick_start_button.state(["disabled"] if reason else ["!disabled"])
         if update_status:
             self.quick_status.set(reason or "條件已完成，可以開始分析。")
@@ -1890,6 +2028,10 @@ class PasswordToolGUI(tk.Tk):
                 if strategy == self.config_data.attack_strategy
             )
             self.quick_strategy.set(label)
+            for key, variable in self.brute_category_vars.items():
+                variable.set(key in self.config_data.brute_force_categories)
+            self.brute_min_length.set(str(self.config_data.brute_force_min_length))
+            self.brute_max_length.set(str(self.config_data.brute_force_max_length))
         if hasattr(self, "hashcat_wordlist"):
             self.hashcat_wordlist.set(str(self.config_data.default_wordlist or ""))
         if hasattr(self, "john_wordlist"):
@@ -1994,7 +2136,21 @@ class PasswordToolGUI(tk.Tk):
             self.config_data.default_wordlist = Path(wordlist) if wordlist else None
             self.config_data.combo_wordlist = Path(value) if (value := self.quick_combo_wordlist.get().strip()) else None
             self.config_data.combo_key = self.quick_combo_key.get().strip()
+            categories = self.selected_brute_force_categories()
+            minimum = int(self.brute_min_length.get())
+            maximum = int(self.brute_max_length.get())
+            candidate_count(len(build_charset(categories)), minimum, maximum)
+            self.config_data.brute_force_categories = categories
+            self.config_data.brute_force_min_length = minimum
+            self.config_data.brute_force_max_length = maximum
             self.config_data.attack_strategy = self.selected_attack_strategy()
+            categories = self.selected_brute_force_categories()
+            minimum = int(self.brute_min_length.get())
+            maximum = int(self.brute_max_length.get())
+            candidate_count(len(build_charset(categories)), minimum, maximum)
+            self.config_data.brute_force_categories = categories
+            self.config_data.brute_force_min_length = minimum
+            self.config_data.brute_force_max_length = maximum
             settings = {
                 "auto_download": bool(self.quick_auto_download.get()),
                 "converter": converter,
@@ -2002,6 +2158,9 @@ class PasswordToolGUI(tk.Tk):
                 "expand_wordlist": bool(self.quick_expand_wordlist.get()),
                 "hashcat_mask": self.hashcat_mask.get().strip(),
                 "john_mask": self.john_mask.get().strip(),
+                "brute_force_categories": categories,
+                "brute_force_min_length": minimum,
+                "brute_force_max_length": maximum,
             }
             paths = self._auto_output_paths(src)
             self.job_controller.start(
@@ -2037,6 +2196,7 @@ class PasswordToolGUI(tk.Tk):
             "cracked": base.with_name(base.name + "_cracked.txt"),
             "session": base.with_name(base.name + "_session.log"),
             "mask": base.with_name(base.name + "_auto.hcmask"),
+            "charset": base.with_name(base.name + "_auto.hcchr"),
             "expanded_wordlist": base.with_name(base.name + "_expanded_wordlist.txt"),
             "library_wordlist": base.with_name(base.name + "_library_wordlists.txt"),
             "combo_seed": base.with_name(base.name + "_combo_seed.txt"),
@@ -2144,24 +2304,27 @@ class PasswordToolGUI(tk.Tk):
         stages: list[JobStage] = []
 
         def add_stage(
-            stage_name: str, wordlist: str, suffix: str, stage_mask: str = ""
+            stage_name: str, wordlist: str, suffix: str, stage_mask: str = "",
+            custom_charset: Path | None = None, stage_candidate_count: int | None = None,
+            john_charset: str = "", mask_length: int | None = None,
         ) -> None:
-            candidate_count = "-"
+            current_candidate_count: str | int = stage_candidate_count or "-"
             if wordlist:
                 self.enqueue_status("正在統計字典候選")
-                candidate_count = count_text_lines(Path(wordlist), cancel=self.conversion_cancel)
-                self.enqueue_status(f"字典候選統計完成：{candidate_count}")
+                current_candidate_count = count_text_lines(Path(wordlist), cancel=self.conversion_cancel)
+                self.enqueue_status(f"字典候選統計完成：{current_candidate_count}")
             if engine == "hashcat":
                 configured_mask = stage_mask or str(settings["hashcat_mask"])
                 cmd = build_auto_hashcat_command(
                     str(self.config_data.hashcat_path), paths["hashcat_hash"], first_number(mode_label),
                     wordlist, paths["cracked"], paths["mask"], src, configured_mask, suffix,
+                    custom_charset,
                 )
                 cwd = str(self.config_data.hashcat_path.parent)
             else:
                 cmd = build_auto_john_command(
                     str(self.config_data.john_path), paths["john_hash"], wordlist, src,
-                    str(settings["john_mask"]), suffix,
+                    str(settings["john_mask"]), suffix, john_charset, mask_length,
                 )
                 cwd = str(self.config_data.john_run_dir) if self.config_data.john_run_dir else None
             stages.append(
@@ -2172,7 +2335,7 @@ class PasswordToolGUI(tk.Tk):
                     attack_type=suffix,
                     command=tuple(cmd),
                     cwd=cwd,
-                    candidate_count=candidate_count,
+                    candidate_count=current_candidate_count,
                     session_log=paths["session"],
                     hash_file=hash_file,
                     mode_label=mode_label,
@@ -2199,7 +2362,26 @@ class PasswordToolGUI(tk.Tk):
                 add_stage("提示詞破解", combo_wordlist, "hints")
             else:
                 configured_mask = str(settings["hashcat_mask"])
-                if engine == "hashcat" and (
+                if engine == "hashcat" and "brute_force_categories" in settings and (
+                    not configured_mask or configured_mask == HASHCAT_DEFAULT_MASK
+                ):
+                    categories = tuple(settings["brute_force_categories"])
+                    charset = build_charset(categories)
+                    paths["charset"].write_bytes(charset)
+                    labels = " + ".join(CATEGORY_LABELS[key] for key in categories)
+                    for length in range(
+                        int(settings["brute_force_min_length"]),
+                        int(settings["brute_force_max_length"]) + 1,
+                    ):
+                        add_stage(
+                            f"遮罩破解 ({labels}，{ENCODING_LABEL}，{length} 位)",
+                            "",
+                            f"mask-{length}",
+                            "?1" * length,
+                            paths["charset"],
+                            len(charset) ** length,
+                        )
+                elif engine == "hashcat" and (
                     not configured_mask or configured_mask == HASHCAT_DEFAULT_MASK
                 ):
                     for index, mask in enumerate(AUTO_MASKS):
@@ -2208,6 +2390,22 @@ class PasswordToolGUI(tk.Tk):
                             "",
                             f"mask-{index}",
                             mask,
+                        )
+                elif engine == "john" and "brute_force_categories" in settings and (
+                    not str(settings["john_mask"]) or str(settings["john_mask"]) == JOHN_DEFAULT_MASK
+                ):
+                    categories = tuple(settings["brute_force_categories"])
+                    charset = build_charset(categories)
+                    labels = " + ".join(CATEGORY_LABELS[key] for key in categories)
+                    john_charset = john_charset_expression(categories)
+                    for length in range(
+                        int(settings["brute_force_min_length"]),
+                        int(settings["brute_force_max_length"]) + 1,
+                    ):
+                        add_stage(
+                            f"遮罩破解 ({labels}，{ENCODING_LABEL}，{length} 位)",
+                            "", f"mask-{length}", stage_candidate_count=len(charset) ** length,
+                            john_charset=john_charset, mask_length=length,
                         )
                 else:
                     add_stage("遮罩破解", "", "mask")
@@ -2592,7 +2790,11 @@ class PasswordToolGUI(tk.Tk):
             else:
                 passwords = extract_passwords_from_show(shown, engine, plaintext_only=engine == "hashcat")
                 if passwords:
-                    existing = cracked.read_text(encoding="utf-8", errors="replace").splitlines() if cracked.exists() else []
+                    existing_text = cracked.read_text(encoding="utf-8", errors="replace") if cracked.exists() else ""
+                    existing = (
+                        extract_passwords_from_show(existing_text, "hashcat", plaintext_only=True)
+                        if engine == "hashcat" else existing_text.splitlines()
+                    )
                     merged = list(dict.fromkeys([line for line in existing + passwords if line.strip()]))
                     cracked.write_text("\n".join(merged) + "\n", encoding="utf-8", newline="\n")
                     self.log(f"\n已輸出密碼：{cracked}\n")
@@ -3018,7 +3220,11 @@ class PasswordToolGUI(tk.Tk):
         self.sync_config_to_ui()
 
     def save_settings(self) -> None:
-        self.apply_settings(persist=True)
+        try:
+            self.apply_settings(persist=True)
+        except (TypeError, ValueError) as exc:
+            messagebox.showerror("設定錯誤", str(exc))
+            return
         messagebox.showinfo("已儲存", "設定已儲存。")
 
     def detect_settings(self) -> None:
