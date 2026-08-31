@@ -2143,16 +2143,16 @@ class PasswordToolGUI(tk.Tk):
         dictionary_sources = self.collect_dictionary_sources(manual_wordlist)
         stages: list[JobStage] = []
 
-        def add_stage(stage_name: str, wordlist: str, suffix: str) -> None:
+        def add_stage(
+            stage_name: str, wordlist: str, suffix: str, stage_mask: str = ""
+        ) -> None:
             candidate_count = "-"
             if wordlist:
                 self.enqueue_status("正在統計字典候選")
                 candidate_count = count_text_lines(Path(wordlist), cancel=self.conversion_cancel)
                 self.enqueue_status(f"字典候選統計完成：{candidate_count}")
             if engine == "hashcat":
-                configured_mask = str(settings["hashcat_mask"])
-                if not wordlist and (not configured_mask or configured_mask == HASHCAT_DEFAULT_MASK):
-                    paths["mask"].write_text("\n".join(AUTO_MASKS) + "\n", encoding="utf-8", newline="\n")
+                configured_mask = stage_mask or str(settings["hashcat_mask"])
                 cmd = build_auto_hashcat_command(
                     str(self.config_data.hashcat_path), paths["hashcat_hash"], first_number(mode_label),
                     wordlist, paths["cracked"], paths["mask"], src, configured_mask, suffix,
@@ -2198,7 +2198,19 @@ class PasswordToolGUI(tk.Tk):
             elif step == "hints":
                 add_stage("提示詞破解", combo_wordlist, "hints")
             else:
-                add_stage("遮罩破解", "", "mask")
+                configured_mask = str(settings["hashcat_mask"])
+                if engine == "hashcat" and (
+                    not configured_mask or configured_mask == HASHCAT_DEFAULT_MASK
+                ):
+                    for index, mask in enumerate(AUTO_MASKS):
+                        add_stage(
+                            f"遮罩破解 ({mask}，{estimate_mask_length(mask)} 位)",
+                            "",
+                            f"mask-{index}",
+                            mask,
+                        )
+                else:
+                    add_stage("遮罩破解", "", "mask")
         return stages
 
     def _auto_workflow(self, src: Path, wordlist: str, settings: dict[str, object]) -> None:

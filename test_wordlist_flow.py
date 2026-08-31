@@ -76,7 +76,7 @@ class WordlistFlowTests(TestCase):
             APP.AttackStrategy.HINTS: ["提示詞破解"],
             APP.AttackStrategy.MASK: ["遮罩破解"],
         }
-        settings = {"expand_wordlist": False, "hashcat_mask": "", "john_mask": ""}
+        settings = {"expand_wordlist": False, "hashcat_mask": "?d?d", "john_mask": ""}
         for strategy, stage_names in expected.items():
             with self.subTest(strategy=strategy):
                 gui = self.make_gui()
@@ -94,6 +94,26 @@ class WordlistFlowTests(TestCase):
                     [stage.display_name.removeprefix("hashcat ") for stage in stages],
                     stage_names,
                 )
+
+    def test_default_hashcat_masks_are_ordered_independent_stages(self):
+        gui = self.make_gui()
+        gui.config_data.attack_strategy = APP.AttackStrategy.MASK
+
+        stages = gui.build_auto_attack_stages(
+            Path("input.zip"), self.paths(), "hashcat", Path("hash.txt"), "0 - MD5", "",
+            {"expand_wordlist": False, "hashcat_mask": APP.HASHCAT_DEFAULT_MASK, "john_mask": ""},
+        )
+
+        masks = [stage.command[-1] for stage in stages]
+        self.assertEqual(masks, APP.AUTO_MASKS)
+        self.assertEqual(
+            [mask for mask in masks if set(mask) <= {"?", "d"}],
+            ["?d" * length for length in range(4, 9)],
+        )
+        self.assertLess(masks.index("?d?d?d?d?d?d"), masks.index("?d?d?d?d?d?d?d"))
+        six_digit = stages[masks.index("?d?d?d?d?d?d")]
+        self.assertIn("6 位", six_digit.display_name)
+        self.assertEqual(six_digit.command[-3:-1], ("3", "hashcat_hash.txt"))
 
     def test_source_strategies_reject_missing_candidates(self):
         settings = {"expand_wordlist": False, "hashcat_mask": "", "john_mask": ""}
