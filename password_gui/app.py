@@ -413,6 +413,7 @@ class PasswordToolGUI(tk.Tk):
         style.configure("MetricName.TLabel", background=SURFACE, foreground=MUTED, font=(self.ui_font, 10))
         style.configure("Status.TLabel", anchor="w", background=BG, foreground=MUTED)
         style.configure("Technical.TLabel", background=BG, foreground=MUTED, font=(self.mono_font, 10))
+        style.configure("CardTechnical.TLabel", background=SURFACE, foreground=MUTED, font=(self.mono_font, 10))
         style.configure("Pill.TLabel", background=INFO_BG, foreground=INFO, padding=(8, 4), font=(self.ui_font, 10, "bold"))
         style.configure("Info.Pill.TLabel", background=INFO_BG, foreground=INFO)
         style.configure("Success.Pill.TLabel", background=SUCCESS_BG, foreground=SUCCESS)
@@ -1018,7 +1019,8 @@ class PasswordToolGUI(tk.Tk):
         ttk.Label(progress_card, textvariable=self.output_mode_var, style="Card.TLabel").grid(row=0, column=1, sticky="e")
         ttk.Progressbar(progress_card, variable=self.progress_value, maximum=100).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 8))
         ttk.Label(progress_card, textvariable=self.output_overview_var, style="Card.TLabel").grid(row=2, column=0, columnspan=2, sticky="w")
-        ttk.Label(progress_card, textvariable=self.output_file_var, style="Muted.TLabel").grid(row=3, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        self.output_file_label = ttk.Label(progress_card, textvariable=self.output_file_var, style="CardTechnical.TLabel")
+        self.output_file_label.grid(row=3, column=0, columnspan=2, sticky="w", pady=(6, 0))
 
         results = ttk.Frame(frame, style="App.TFrame")
         results.grid(row=3, column=0, sticky="nsew")
@@ -1170,7 +1172,7 @@ class PasswordToolGUI(tk.Tk):
             relief="flat",
             borderwidth=0,
             padx=12,
-            pady=10,
+            pady=8,
         )
         self.help_text.grid(row=0, column=0, sticky="nsew")
         self.help_text.insert(
