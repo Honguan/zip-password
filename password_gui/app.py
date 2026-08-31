@@ -21,6 +21,7 @@ from tkinter import ttk
 from password_gui.config import (
     AppConfig,
     AttackStrategy,
+    PATH_FIELDS,
     load_config_file,
     read_config_file as read_typed_config_file,
     save_config_file,
@@ -297,6 +298,21 @@ def migrate_legacy_runtime_dirs() -> bool:
     return bool(migrated)
 
 
+def remap_config_path_root(config: AppConfig, legacy_root: Path, current_root: Path) -> bool:
+    changed = False
+    for key in PATH_FIELDS:
+        value = getattr(config, key)
+        if value is None:
+            continue
+        try:
+            relative = value.relative_to(legacy_root)
+        except ValueError:
+            continue
+        setattr(config, key, current_root / relative)
+        changed = True
+    return changed
+
+
 def upgrade_config_runtime_paths(config: AppConfig) -> bool:
     changed = False
     for legacy, current in (
@@ -304,7 +320,7 @@ def upgrade_config_runtime_paths(config: AppConfig) -> bool:
         (LEGACY_RESULTS_DIR, RESULTS_DIR),
     ):
         if not legacy.exists():
-            changed = config.remap_path_root(legacy, current) or changed
+            changed = remap_config_path_root(config, legacy, current) or changed
     return changed
 
 
