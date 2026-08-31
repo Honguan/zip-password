@@ -33,7 +33,7 @@ class WordlistFlowTests(TestCase):
     def paths(self):
         return {key: Path(f"{key}.txt") for key in (
             "john_hash", "hashcat_hash", "cracked", "mask", "session", "library_wordlist",
-            "expanded_wordlist", "combo_seed", "combo_key_wordlist", "combo_wordlist",
+            "charset", "expanded_wordlist", "combo_seed", "combo_key_wordlist", "combo_wordlist",
         )}
 
     def test_default_order_expands_the_merged_dictionary_when_enabled(self):
@@ -114,6 +114,32 @@ class WordlistFlowTests(TestCase):
         six_digit = stages[masks.index("?d?d?d?d?d?d")]
         self.assertIn("6 位", six_digit.display_name)
         self.assertEqual(six_digit.command[-3:-1], ("3", "hashcat_hash.txt"))
+
+    def test_selected_categories_use_one_charset_at_every_position(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            paths = {key: root / path.name for key, path in self.paths().items()}
+            gui = self.make_gui()
+            gui.config_data.attack_strategy = APP.AttackStrategy.MASK
+
+            stages = gui.build_auto_attack_stages(
+                Path("input.zip"), paths, "hashcat", paths["hashcat_hash"], "0 - MD5", "",
+                {
+                    "expand_wordlist": False,
+                    "hashcat_mask": APP.HASHCAT_DEFAULT_MASK,
+                    "john_mask": "",
+                    "brute_force_categories": ("digits", "english"),
+                    "brute_force_min_length": 6,
+                    "brute_force_max_length": 6,
+                },
+            )
+
+            self.assertEqual(len(stages), 1)
+            self.assertEqual(stages[0].command[-1], "?1" * 6)
+            self.assertEqual(stages[0].command[-3], str(paths["charset"]))
+            self.assertEqual(paths["charset"].read_bytes(), APP.build_charset(["digits", "english"]))
+            self.assertEqual(stages[0].candidate_count, 62**6)
+            self.assertIn("6 位", stages[0].display_name)
 
     def test_source_strategies_reject_missing_candidates(self):
         settings = {"expand_wordlist": False, "hashcat_mask": "", "john_mask": ""}
