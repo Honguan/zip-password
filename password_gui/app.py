@@ -419,11 +419,11 @@ class PasswordToolGUI(tk.Tk):
         style.configure("Warning.Pill.TLabel", background=WARNING_BG, foreground=TEXT)
         style.configure("Danger.Pill.TLabel", background=DANGER_BG, foreground=DANGER)
         style.configure("Neutral.Pill.TLabel", background=SURFACE_2, foreground=MUTED)
-        style.configure("Info.Soft.TLabel", background=INFO_BG, foreground=INFO, padding=(6, 2))
-        style.configure("Success.Soft.TLabel", background=SUCCESS_BG, foreground=SUCCESS, padding=(6, 2))
-        style.configure("Warning.Soft.TLabel", background=WARNING_BG, foreground=TEXT, padding=(6, 2))
-        style.configure("Danger.Soft.TLabel", background=DANGER_BG, foreground=DANGER, padding=(6, 2))
-        style.configure("Neutral.Soft.TLabel", background=SURFACE_2, foreground=MUTED, padding=(6, 2))
+        style.configure("Info.Soft.TLabel", background=INFO_BG, foreground=INFO, padding=(8, 4))
+        style.configure("Success.Soft.TLabel", background=SUCCESS_BG, foreground=SUCCESS, padding=(8, 4))
+        style.configure("Warning.Soft.TLabel", background=WARNING_BG, foreground=TEXT, padding=(8, 4))
+        style.configure("Danger.Soft.TLabel", background=DANGER_BG, foreground=DANGER, padding=(8, 4))
+        style.configure("Neutral.Soft.TLabel", background=SURFACE_2, foreground=MUTED, padding=(8, 4))
         style.configure("TButton", padding=(12, 7), background=SURFACE, foreground=TEXT, bordercolor=BORDER, lightcolor=SURFACE, darkcolor=BORDER)
         style.map(
             "TButton",
